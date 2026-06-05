@@ -95,13 +95,14 @@ export default function DashboardPage() {
       setMessage({ text: '位置情報を取得できませんでした。打刻は記録されます。', type: 'info' })
     }
 
-    const { error } = await supabase.from('attendance').insert({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from('attendance') as any).insert({
       user_id: profile.id,
       type: type,
       latitude: lat,
       longitude: lng,
       is_valid: isValid,
-    } as { user_id: string; type: string; latitude: number | null; longitude: number | null; is_valid: boolean })
+    })
 
     if (error) {
       setMessage({ text: '打刻に失敗しました。もう一度お試しください。', type: 'error' })
