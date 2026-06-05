@@ -97,11 +97,11 @@ export default function DashboardPage() {
 
     const { error } = await supabase.from('attendance').insert({
       user_id: profile.id,
-      type,
+      type: type,
       latitude: lat,
       longitude: lng,
       is_valid: isValid,
-    })
+    } as { user_id: string; type: string; latitude: number | null; longitude: number | null; is_valid: boolean })
 
     if (error) {
       setMessage({ text: '打刻に失敗しました。もう一度お試しください。', type: 'error' })
