@@ -39,7 +39,32 @@ export default function AdminPage() {
   const [filterName, setFilterName] = useState('')
   const [loading, setLoading] = useState(true)
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
   const [messages, setMessages] = useState<MessageWithProfile[]>([])
+
+  // ISO日時 → datetime-local入力用（ローカル時刻 YYYY-MM-DDTHH:mm）
+  const toLocalInput = (ts: string) => {
+    const d = new Date(ts)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  const handleSaveTime = async (id: string) => {
+    if (!editValue) return
+    const iso = new Date(editValue).toISOString()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from('attendance') as any).update({ timestamp: iso }).eq('id', id)
+    setEditingId(null)
+    setEditValue('')
+    await fetchData()
+  }
+
+  const handleDeleteRecord = async (id: string) => {
+    if (!window.confirm('この打刻を削除しますか？この操作は取り消せません。')) return
+    await supabase.from('attendance').delete().eq('id', id)
+    await fetchData()
+  }
 
   const fetchMessages = useCallback(async () => {
     const { data } = await supabase
@@ -307,7 +332,7 @@ export default function AdminPage() {
                             </div>
                             <div className="space-y-1.5">
                               {s.records.map(r => (
-                                <div key={r.id} className="flex items-center gap-3 text-sm">
+                                <div key={r.id} className="flex items-center gap-3 text-sm flex-wrap">
                                   <span className={`text-xs px-2 py-0.5 rounded-full ${
                                     r.type === 'clock_in' ? 'bg-emerald-100 text-emerald-700' :
                                     r.type === 'clock_out' ? 'bg-slate-100 text-slate-600' :
@@ -315,8 +340,37 @@ export default function AdminPage() {
                                   }`}>
                                     {{ clock_in: '出勤', clock_out: '退勤', break_start: '休憩開始', break_end: '休憩終了' }[r.type]}
                                   </span>
-                                  <span style={{ color: 'var(--navy)' }}>{formatTime(r.timestamp)}</span>
-                                  {!r.is_valid && <span className="text-xs" style={{ color: '#EF4444' }}>要確認（位置）</span>}
+                                  {editingId === r.id ? (
+                                    <>
+                                      <input
+                                        type="datetime-local"
+                                        value={editValue}
+                                        onChange={e => setEditValue(e.target.value)}
+                                        className="px-2 py-1 rounded border text-xs"
+                                        style={{ borderColor: 'var(--gray-light)', background: '#fff', color: 'var(--navy)' }}
+                                      />
+                                      <button onClick={() => handleSaveTime(r.id)} className="btn-gold text-xs px-3 py-1 rounded-full">保存</button>
+                                      <button onClick={() => { setEditingId(null); setEditValue('') }} className="text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600">取消</button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span style={{ color: 'var(--navy)' }}>{formatTime(r.timestamp)}</span>
+                                      {!r.is_valid && <span className="text-xs" style={{ color: '#EF4444' }}>要確認（位置）</span>}
+                                      <button
+                                        onClick={() => { setEditingId(r.id); setEditValue(toLocalInput(r.timestamp)) }}
+                                        className="text-xs px-2 py-0.5 rounded-full border hover:bg-white transition"
+                                        style={{ borderColor: 'var(--gray-light)', color: 'var(--gray)' }}
+                                      >
+                                        時刻編集
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteRecord(r.id)}
+                                        className="text-xs px-2 py-0.5 rounded-full border border-red-200 text-red-500 hover:bg-red-50 transition"
+                                      >
+                                        削除
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               ))}
                             </div>
