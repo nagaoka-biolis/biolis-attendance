@@ -51,6 +51,8 @@ export default function AdminPage() {
 
     // 日別・スタッフ別に集計
     const map = new Map<string, DailySummary>()
+    const breakTmp = new Map<string, string | null>()  // key -> 休憩開始の仮時刻
+    const breakSum = new Map<string, number>()           // key -> 休憩合計（分）
     for (const r of data as AttendanceWithProfile[]) {
       const date = new Date(r.timestamp).toLocaleDateString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric' })
       const key = `${r.user_id}_${date}`
@@ -60,12 +62,21 @@ export default function AdminPage() {
       const entry = map.get(key)!
       if (r.type === 'clock_in' && !entry.clockIn) entry.clockIn = r.timestamp
       if (r.type === 'clock_out') entry.clockOut = r.timestamp
+      if (r.type === 'break_start') breakTmp.set(key, r.timestamp)
+      if (r.type === 'break_end') {
+        const bs = breakTmp.get(key)
+        if (bs) {
+          breakSum.set(key, (breakSum.get(key) ?? 0) + (new Date(r.timestamp).getTime() - new Date(bs).getTime()) / 60000)
+          breakTmp.set(key, null)
+        }
+      }
     }
 
-    // 勤務時間計算
-    for (const s of map.values()) {
+    // 勤務時間計算（休憩を差し引く）
+    for (const [key, s] of map.entries()) {
       if (s.clockIn && s.clockOut) {
-        s.minutes = (new Date(s.clockOut).getTime() - new Date(s.clockIn).getTime()) / 60000
+        const gross = (new Date(s.clockOut).getTime() - new Date(s.clockIn).getTime()) / 60000
+        s.minutes = Math.max(0, gross - (breakSum.get(key) ?? 0))
       }
     }
 

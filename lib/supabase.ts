@@ -29,7 +29,7 @@ export type Profile = {
 export type Attendance = {
   id: string
   user_id: string
-  type: 'clock_in' | 'clock_out'
+  type: 'clock_in' | 'clock_out' | 'break_start' | 'break_end'
   timestamp: string
   latitude: number | null
   longitude: number | null

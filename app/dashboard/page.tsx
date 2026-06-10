@@ -4,9 +4,9 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase, Profile, Attendance } from '@/lib/supabase'
 
-// クリニックの座標（後で実際の座標に変更）
-const CLINIC_LAT = 35.6895
-const CLINIC_LNG = 139.6917
+// クリニックの座標（東京都中央区八重洲1丁目3-18 VORT東京八重洲maxim）
+const CLINIC_LAT = 35.6812
+const CLINIC_LNG = 139.7702
 const ALLOWED_RADIUS_M = 300
 
 function getDistance(lat1: number, lng1: number, lat2: number, lng2: number) {
@@ -69,7 +69,7 @@ export default function DashboardPage() {
     init()
   }, [router, fetchTodayRecords])
 
-  const handleClock = async (type: 'clock_in' | 'clock_out') => {
+  const handleClock = async (type: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
     if (!profile) return
     setLoading(true)
     setMessage(null)
@@ -107,10 +107,8 @@ export default function DashboardPage() {
     if (error) {
       setMessage({ text: '打刻に失敗しました。もう一度お試しください。', type: 'error' })
     } else {
-      setMessage({
-        text: type === 'clock_in' ? '出勤を記録しました' : '退勤を記録しました',
-        type: 'success'
-      })
+      const label = { clock_in: '出勤', clock_out: '退勤', break_start: '休憩開始', break_end: '休憩終了' }[type]
+      setMessage({ text: `${label}を記録しました`, type: 'success' })
       await fetchTodayRecords(profile.id)
     }
     setLoading(false)
@@ -124,18 +122,37 @@ export default function DashboardPage() {
   const lastClockIn = [...todayRecords].reverse().find(r => r.type === 'clock_in')
   const lastClockOut = [...todayRecords].reverse().find(r => r.type === 'clock_out')
 
-  // 本日の合計勤務時間（分）
-  let totalMinutes = 0
+  // 勤務時間（分）= 出勤〜退勤の合計 − 休憩の合計
+  let workMinutes = 0
   let tempIn: string | null = null
   for (const r of todayRecords) {
     if (r.type === 'clock_in') { tempIn = r.timestamp }
     else if (r.type === 'clock_out' && tempIn) {
-      totalMinutes += (new Date(r.timestamp).getTime() - new Date(tempIn).getTime()) / 60000
+      workMinutes += (new Date(r.timestamp).getTime() - new Date(tempIn).getTime()) / 60000
       tempIn = null
     }
   }
+  let breakMinutes = 0
+  let tempBreak: string | null = null
+  for (const r of todayRecords) {
+    if (r.type === 'break_start') { tempBreak = r.timestamp }
+    else if (r.type === 'break_end' && tempBreak) {
+      breakMinutes += (new Date(r.timestamp).getTime() - new Date(tempBreak).getTime()) / 60000
+      tempBreak = null
+    }
+  }
+  const totalMinutes = Math.max(0, workMinutes - breakMinutes)
   const totalHours = Math.floor(totalMinutes / 60)
   const totalMins = Math.floor(totalMinutes % 60)
+
+  // 現在の勤務状態（out=退勤中 / in=勤務中 / break=休憩中）
+  let status: 'out' | 'in' | 'break' = 'out'
+  for (const r of todayRecords) {
+    if (r.type === 'clock_in') status = 'in'
+    else if (r.type === 'clock_out') status = 'out'
+    else if (r.type === 'break_start') status = 'break'
+    else if (r.type === 'break_end') status = 'in'
+  }
 
   if (!profile) {
     return (
@@ -193,23 +210,42 @@ export default function DashboardPage() {
 
         {/* 打刻ボタン */}
         <div className="card p-6">
-          <div className="text-xs tracking-[0.2em] text-center mb-5" style={{ color: 'var(--gray)' }}>
-            PUNCH IN / OUT
+          <div className="flex items-center justify-center gap-2 mb-5">
+            <span className={`w-2 h-2 rounded-full ${
+              status === 'in' ? 'bg-emerald-500' : status === 'break' ? 'bg-amber-500' : 'bg-slate-300'
+            }`}></span>
+            <div className="text-xs tracking-[0.2em]" style={{ color: 'var(--gray)' }}>
+              {status === 'in' ? '勤務中' : status === 'break' ? '休憩中' : '退勤中'}
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={() => handleClock('clock_in')}
-              disabled={loading}
+              disabled={loading || status !== 'out'}
               className="btn-gold py-5 rounded-xl text-sm tracking-[0.15em]"
             >
               {loading ? '...' : '出　勤'}
             </button>
             <button
               onClick={() => handleClock('clock_out')}
-              disabled={loading}
+              disabled={loading || status === 'out'}
               className="btn-outline py-5 rounded-xl text-sm tracking-[0.15em]"
             >
               {loading ? '...' : '退　勤'}
+            </button>
+            <button
+              onClick={() => handleClock('break_start')}
+              disabled={loading || status !== 'in'}
+              className="btn-outline py-4 rounded-xl text-xs tracking-[0.15em]"
+            >
+              {loading ? '...' : '休憩開始'}
+            </button>
+            <button
+              onClick={() => handleClock('break_end')}
+              disabled={loading || status !== 'break'}
+              className="btn-outline py-4 rounded-xl text-xs tracking-[0.15em]"
+            >
+              {loading ? '...' : '休憩終了'}
             </button>
           </div>
         </div>
@@ -248,11 +284,11 @@ export default function DashboardPage() {
                 {todayRecords.map(r => (
                   <div key={r.id} className="flex items-center justify-between text-sm">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      r.type === 'clock_in'
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : 'bg-slate-100 text-slate-600'
+                      r.type === 'clock_in' ? 'bg-emerald-100 text-emerald-700' :
+                      r.type === 'clock_out' ? 'bg-slate-100 text-slate-600' :
+                      'bg-amber-100 text-amber-700'
                     }`}>
-                      {r.type === 'clock_in' ? '出勤' : '退勤'}
+                      {{ clock_in: '出勤', clock_out: '退勤', break_start: '休憩開始', break_end: '休憩終了' }[r.type]}
                     </span>
                     <span style={{ color: 'var(--navy)' }}>{formatTime(r.timestamp)}</span>
                     <span className="text-xs" style={{ color: r.is_valid ? 'var(--gray)' : '#EF4444' }}>
