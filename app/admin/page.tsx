@@ -42,6 +42,28 @@ export default function AdminPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const [messages, setMessages] = useState<MessageWithProfile[]>([])
+  const [newStaff, setNewStaff] = useState({ name: '', email: '', password: '', role: 'staff' })
+  const [staffSaving, setStaffSaving] = useState(false)
+  const [staffMsg, setStaffMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+
+  const handleAddStaff = async () => {
+    setStaffSaving(true)
+    setStaffMsg(null)
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/create-staff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+      body: JSON.stringify(newStaff),
+    })
+    const result = await res.json().catch(() => ({}))
+    if (res.ok) {
+      setStaffMsg({ text: `${result.name} さんを登録しました（${newStaff.email}）`, type: 'success' })
+      setNewStaff({ name: '', email: '', password: '', role: 'staff' })
+    } else {
+      setStaffMsg({ text: result.error ?? '登録に失敗しました', type: 'error' })
+    }
+    setStaffSaving(false)
+  }
 
   // ISO日時 → datetime-local入力用（ローカル時刻 YYYY-MM-DDTHH:mm）
   const toLocalInput = (ts: string) => {
@@ -273,6 +295,62 @@ export default function AdminPage() {
               className="w-full px-3 py-2 rounded-lg text-sm border focus:outline-none"
               style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
             />
+          </div>
+        </div>
+
+        {/* スタッフ追加 */}
+        <div className="card p-5">
+          <div className="text-xs tracking-[0.2em] mb-3" style={{ color: 'var(--gray)' }}>
+            ADD STAFF — スタッフを追加
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input
+              type="text" value={newStaff.name}
+              onChange={e => setNewStaff({ ...newStaff, name: e.target.value })}
+              placeholder="名前（例：佐々木 花子）"
+              className="px-3 py-2 rounded-lg text-sm border focus:outline-none"
+              style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
+            />
+            <input
+              type="email" value={newStaff.email}
+              onChange={e => setNewStaff({ ...newStaff, email: e.target.value })}
+              placeholder="メールアドレス（ログインID）"
+              className="px-3 py-2 rounded-lg text-sm border focus:outline-none"
+              style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
+            />
+            <input
+              type="text" value={newStaff.password}
+              onChange={e => setNewStaff({ ...newStaff, password: e.target.value })}
+              placeholder="初期パスワード（6文字以上）"
+              className="px-3 py-2 rounded-lg text-sm border focus:outline-none"
+              style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
+            />
+            <select
+              value={newStaff.role}
+              onChange={e => setNewStaff({ ...newStaff, role: e.target.value })}
+              className="px-3 py-2 rounded-lg text-sm border focus:outline-none"
+              style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
+            >
+              <option value="staff">スタッフ（打刻のみ）</option>
+              <option value="admin">管理者（集計・管理も可能）</option>
+            </select>
+          </div>
+          <button
+            onClick={handleAddStaff}
+            disabled={staffSaving || !newStaff.name || !newStaff.email || newStaff.password.length < 6}
+            className="btn-gold w-full sm:w-auto px-6 py-2.5 rounded-lg text-sm tracking-[0.15em] mt-3"
+          >
+            {staffSaving ? '登録中...' : 'スタッフを登録'}
+          </button>
+          {staffMsg && (
+            <div className={`mt-3 text-sm rounded-lg px-3 py-2 ${
+              staffMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
+            }`}>
+              {staffMsg.text}
+            </div>
+          )}
+          <div className="text-xs mt-2" style={{ color: 'var(--gray)' }}>
+            登録したメールアドレスと初期パスワードをスタッフに伝えてください。スタッフはそれでログインし、打刻できます。
           </div>
         </div>
 
