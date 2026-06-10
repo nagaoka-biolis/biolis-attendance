@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase, Profile, Attendance } from '@/lib/supabase'
 
@@ -15,12 +15,15 @@ function formatDate(ts: string) {
 }
 
 type DailySummary = {
+  key: string
   date: string
   name: string
   userId: string
   clockIn: string | null
   clockOut: string | null
   minutes: number
+  breakMinutes: number
+  records: Attendance[]
 }
 
 export default function AdminPage() {
@@ -33,6 +36,7 @@ export default function AdminPage() {
   })
   const [filterName, setFilterName] = useState('')
   const [loading, setLoading] = useState(true)
+  const [expandedKey, setExpandedKey] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -57,9 +61,10 @@ export default function AdminPage() {
       const date = new Date(r.timestamp).toLocaleDateString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric' })
       const key = `${r.user_id}_${date}`
       if (!map.has(key)) {
-        map.set(key, { date, name: r.profiles?.name ?? '—', userId: r.user_id, clockIn: null, clockOut: null, minutes: 0 })
+        map.set(key, { key, date, name: r.profiles?.name ?? '—', userId: r.user_id, clockIn: null, clockOut: null, minutes: 0, breakMinutes: 0, records: [] })
       }
       const entry = map.get(key)!
+      entry.records.push(r)
       if (r.type === 'clock_in' && !entry.clockIn) entry.clockIn = r.timestamp
       if (r.type === 'clock_out') entry.clockOut = r.timestamp
       if (r.type === 'break_start') breakTmp.set(key, r.timestamp)
@@ -74,9 +79,10 @@ export default function AdminPage() {
 
     // 勤務時間計算（休憩を差し引く）
     for (const [key, s] of map.entries()) {
+      s.breakMinutes = breakSum.get(key) ?? 0
       if (s.clockIn && s.clockOut) {
         const gross = (new Date(s.clockOut).getTime() - new Date(s.clockIn).getTime()) / 60000
-        s.minutes = Math.max(0, gross - (breakSum.get(key) ?? 0))
+        s.minutes = Math.max(0, gross - s.breakMinutes)
       }
     }
 
@@ -202,24 +208,60 @@ export default function AdminPage() {
                     <th className="text-left pb-3 font-normal">名前</th>
                     <th className="text-center pb-3 font-normal">出勤</th>
                     <th className="text-center pb-3 font-normal">退勤</th>
+                    <th className="text-center pb-3 font-normal">休憩</th>
                     <th className="text-right pb-3 font-normal">勤務時間</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((s, i) => (
-                    <tr key={i} className="border-t border-gray-50">
-                      <td className="py-2.5 text-xs" style={{ color: 'var(--gray)' }}>{formatDate(s.clockIn || s.date)}</td>
-                      <td className="py-2.5 font-medium" style={{ color: 'var(--navy)' }}>{s.name}</td>
-                      <td className="py-2.5 text-center" style={{ color: 'var(--navy)' }}>
-                        {s.clockIn ? formatTime(s.clockIn) : '—'}
-                      </td>
-                      <td className="py-2.5 text-center" style={{ color: 'var(--navy)' }}>
-                        {s.clockOut ? formatTime(s.clockOut) : '—'}
-                      </td>
-                      <td className="py-2.5 text-right" style={{ color: s.minutes > 0 ? 'var(--gold)' : 'var(--gray)' }}>
-                        {s.minutes > 0 ? `${Math.floor(s.minutes / 60)}h ${Math.floor(s.minutes % 60)}m` : '—'}
-                      </td>
-                    </tr>
+                  {filtered.map((s) => (
+                    <Fragment key={s.key}>
+                      <tr
+                        onClick={() => setExpandedKey(expandedKey === s.key ? null : s.key)}
+                        className="border-t border-gray-50 cursor-pointer hover:bg-amber-50/40 transition"
+                      >
+                        <td className="py-2.5 text-xs" style={{ color: 'var(--gray)' }}>
+                          <span className="inline-block w-3" style={{ color: 'var(--gold)' }}>{expandedKey === s.key ? '▾' : '▸'}</span>
+                          {formatDate(s.clockIn || s.date)}
+                        </td>
+                        <td className="py-2.5 font-medium" style={{ color: 'var(--navy)' }}>{s.name}</td>
+                        <td className="py-2.5 text-center" style={{ color: 'var(--navy)' }}>
+                          {s.clockIn ? formatTime(s.clockIn) : '—'}
+                        </td>
+                        <td className="py-2.5 text-center" style={{ color: 'var(--navy)' }}>
+                          {s.clockOut ? formatTime(s.clockOut) : '—'}
+                        </td>
+                        <td className="py-2.5 text-center text-xs" style={{ color: s.breakMinutes > 0 ? 'var(--gray)' : 'var(--gray-light)' }}>
+                          {s.breakMinutes > 0 ? `${Math.floor(s.breakMinutes / 60)}h ${Math.floor(s.breakMinutes % 60)}m` : '—'}
+                        </td>
+                        <td className="py-2.5 text-right" style={{ color: s.minutes > 0 ? 'var(--gold)' : 'var(--gray)' }}>
+                          {s.minutes > 0 ? `${Math.floor(s.minutes / 60)}h ${Math.floor(s.minutes % 60)}m` : '—'}
+                        </td>
+                      </tr>
+                      {expandedKey === s.key && (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-3 bg-amber-50/40">
+                            <div className="text-xs tracking-wider mb-2" style={{ color: 'var(--gray)' }}>
+                              打刻の詳細（{s.name} ・ {formatDate(s.clockIn || s.date)}）
+                            </div>
+                            <div className="space-y-1.5">
+                              {s.records.map(r => (
+                                <div key={r.id} className="flex items-center gap-3 text-sm">
+                                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                    r.type === 'clock_in' ? 'bg-emerald-100 text-emerald-700' :
+                                    r.type === 'clock_out' ? 'bg-slate-100 text-slate-600' :
+                                    'bg-amber-100 text-amber-700'
+                                  }`}>
+                                    {{ clock_in: '出勤', clock_out: '退勤', break_start: '休憩開始', break_end: '休憩終了' }[r.type]}
+                                  </span>
+                                  <span style={{ color: 'var(--navy)' }}>{formatTime(r.timestamp)}</span>
+                                  {!r.is_valid && <span className="text-xs" style={{ color: '#EF4444' }}>要確認（位置）</span>}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
