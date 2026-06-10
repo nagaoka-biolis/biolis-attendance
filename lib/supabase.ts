@@ -35,3 +35,11 @@ export type Attendance = {
   longitude: number | null
   is_valid: boolean
 }
+
+export type Message = {
+  id: string
+  user_id: string
+  body: string
+  created_at: string
+  resolved: boolean
+}

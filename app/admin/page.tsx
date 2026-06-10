@@ -2,7 +2,9 @@
 
 import { useEffect, useState, useCallback, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase, Profile, Attendance } from '@/lib/supabase'
+import { supabase, Profile, Attendance, Message } from '@/lib/supabase'
+
+type MessageWithProfile = Message & { profiles: Profile | null }
 
 type AttendanceWithProfile = Attendance & { profiles: Profile }
 
@@ -37,6 +39,22 @@ export default function AdminPage() {
   const [filterName, setFilterName] = useState('')
   const [loading, setLoading] = useState(true)
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
+  const [messages, setMessages] = useState<MessageWithProfile[]>([])
+
+  const fetchMessages = useCallback(async () => {
+    const { data } = await supabase
+      .from('messages')
+      .select('*, profiles(id, name, role)')
+      .order('created_at', { ascending: false })
+      .limit(100)
+    if (data) setMessages(data as MessageWithProfile[])
+  }, [])
+
+  const toggleResolved = async (m: MessageWithProfile) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from('messages') as any).update({ resolved: !m.resolved }).eq('id', m.id)
+    await fetchMessages()
+  }
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -98,9 +116,10 @@ export default function AdminPage() {
       const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).single()
       setProfile(p ?? { id: user.id, name: '管理者', role: 'admin', created_at: '' })
       await fetchData()
+      await fetchMessages()
     }
     init()
-  }, [router, fetchData])
+  }, [router, fetchData, fetchMessages])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -184,6 +203,49 @@ export default function AdminPage() {
                   <span className="text-sm" style={{ color: 'var(--gold)' }}>
                     {Math.floor(mins / 60)}h {Math.floor(mins % 60)}m
                   </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* スタッフからの連絡 */}
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-xs tracking-[0.2em]" style={{ color: 'var(--gray)' }}>
+              MESSAGES — スタッフからの連絡
+            </div>
+            {messages.filter(m => !m.resolved).length > 0 && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                未対応 {messages.filter(m => !m.resolved).length}件
+              </span>
+            )}
+          </div>
+          {messages.length === 0 ? (
+            <p className="text-sm text-center py-4" style={{ color: 'var(--gray)' }}>連絡はありません</p>
+          ) : (
+            <div className="space-y-2">
+              {[...messages].sort((a, b) => Number(a.resolved) - Number(b.resolved)).map(m => (
+                <div key={m.id} className={`rounded-lg px-4 py-3 ${m.resolved ? 'bg-gray-50' : 'bg-amber-50/60'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium" style={{ color: 'var(--navy)' }}>{m.profiles?.name ?? '—'}</span>
+                      <span className="text-xs" style={{ color: 'var(--gray)' }}>
+                        {new Date(m.created_at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => toggleResolved(m)}
+                      className={`text-xs px-3 py-1 rounded-full transition ${
+                        m.resolved
+                          ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                          : 'btn-gold'
+                      }`}
+                    >
+                      {m.resolved ? '対応済み ✓' : '対応済みにする'}
+                    </button>
+                  </div>
+                  <div className="text-sm whitespace-pre-wrap" style={{ color: 'var(--navy)' }}>{m.body}</div>
                 </div>
               ))}
             </div>

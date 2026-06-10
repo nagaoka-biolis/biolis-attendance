@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase, Profile, Attendance } from '@/lib/supabase'
+import { supabase, Profile, Attendance, Message } from '@/lib/supabase'
 
 // クリニックの座標（東京都中央区八重洲1丁目3-18 VORT東京八重洲maxim）
 const CLINIC_LAT = 35.6812
@@ -33,6 +33,9 @@ export default function DashboardPage() {
   const [now, setNow] = useState(new Date())
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null)
+  const [msgBody, setMsgBody] = useState('')
+  const [msgSending, setMsgSending] = useState(false)
+  const [myMessages, setMyMessages] = useState<Message[]>([])
 
   // 時計
   useEffect(() => {
@@ -52,6 +55,16 @@ export default function DashboardPage() {
     if (data) setTodayRecords(data)
   }, [])
 
+  const fetchMyMessages = useCallback(async (userId: string) => {
+    const { data } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(10)
+    if (data) setMyMessages(data as Message[])
+  }, [])
+
   useEffect(() => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession()
@@ -65,9 +78,28 @@ export default function DashboardPage() {
         .single()
       setProfile(p)
       await fetchTodayRecords(user.id)
+      await fetchMyMessages(user.id)
     }
     init()
-  }, [router, fetchTodayRecords])
+  }, [router, fetchTodayRecords, fetchMyMessages])
+
+  const handleSendMessage = async () => {
+    if (!profile || !msgBody.trim()) return
+    setMsgSending(true)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from('messages') as any).insert({
+      user_id: profile.id,
+      body: msgBody.trim(),
+    })
+    if (error) {
+      setMessage({ text: '送信に失敗しました。もう一度お試しください。', type: 'error' })
+    } else {
+      setMessage({ text: '管理者へ連絡を送信しました', type: 'success' })
+      setMsgBody('')
+      await fetchMyMessages(profile.id)
+    }
+    setMsgSending(false)
+  }
 
   const handleClock = async (type: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
     if (!profile) return
@@ -294,6 +326,55 @@ export default function DashboardPage() {
                     <span className="text-xs" style={{ color: r.is_valid ? 'var(--gray)' : '#EF4444' }}>
                       {r.is_valid ? '✓' : '要確認'}
                     </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* 管理者へ連絡 */}
+        <div className="card p-6">
+          <div className="text-xs tracking-[0.2em] mb-1" style={{ color: 'var(--gray)' }}>
+            CONTACT ADMIN
+          </div>
+          <div className="text-xs mb-3" style={{ color: 'var(--gray)' }}>
+            打刻ミスや修正依頼など、管理者へ連絡できます
+          </div>
+          <textarea
+            value={msgBody}
+            onChange={e => setMsgBody(e.target.value)}
+            rows={3}
+            placeholder="例：9時に出勤打刻を押し忘れました。修正をお願いします。"
+            className="w-full px-3 py-2 rounded-lg text-sm border focus:outline-none resize-none"
+            style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
+          />
+          <button
+            onClick={handleSendMessage}
+            disabled={msgSending || !msgBody.trim()}
+            className="btn-gold w-full py-3 rounded-lg text-sm tracking-[0.15em] mt-3"
+          >
+            {msgSending ? '...' : '管理者へ送信'}
+          </button>
+
+          {myMessages.length > 0 && (
+            <>
+              <div className="divider-gold mt-5"></div>
+              <div className="text-xs tracking-wider mt-3 mb-2" style={{ color: 'var(--gray)' }}>送信履歴</div>
+              <div className="space-y-2">
+                {myMessages.map(m => (
+                  <div key={m.id} className="text-sm rounded-lg px-3 py-2" style={{ background: 'var(--off-white)' }}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs" style={{ color: 'var(--gray)' }}>
+                        {new Date(m.created_at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                        m.resolved ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        {m.resolved ? '対応済み' : '未対応'}
+                      </span>
+                    </div>
+                    <div style={{ color: 'var(--navy)' }}>{m.body}</div>
                   </div>
                 ))}
               </div>
