@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
@@ -10,6 +10,22 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [checking, setChecking] = useState(true)
+
+  // ログイン済みなら自動で打刻画面（管理者は管理画面）へ
+  useEffect(() => {
+    const check = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { setChecking(false); return }
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', session.user.id)
+        .single()
+      router.replace((profile as { role?: string } | null)?.role === 'admin' ? '/admin' : '/dashboard')
+    }
+    check()
+  }, [router])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -37,6 +53,16 @@ export default function LoginPage() {
         router.push('/dashboard')
       }
     }
+  }
+
+  // セッション確認中はローディング表示（ログインフォームのちらつき防止）
+  if (checking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center"
+        style={{ background: 'linear-gradient(160deg, #1A1A2E 0%, #1A2A3E 100%)' }}>
+        <div className="text-white/60 text-sm tracking-widest">読み込み中...</div>
+      </div>
+    )
   }
 
   return (
