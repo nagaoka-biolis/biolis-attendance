@@ -66,6 +66,69 @@ export default function AdminPage() {
     await fetchData()
   }
 
+  // --- CSVエクスポート ---
+  const hm = (min: number) => `${Math.floor(min / 60)}h ${Math.floor(min % 60)}m`
+  const dec = (min: number) => (min / 60).toFixed(2)  // 小数時間（給与計算用）
+
+  const downloadCSV = (filename: string, rows: (string | number)[][]) => {
+    const csv = rows.map(r => r.map(cell => {
+      const s = String(cell ?? '')
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }).join(',')).join('\r\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const exportDaily = () => {
+    const rows: (string | number)[][] = [['日付', '名前', '出勤', '退勤', '休憩(h:m)', '勤務時間(h:m)', '勤務時間(時間)']]
+    for (const s of filtered) {
+      rows.push([
+        s.date, s.name,
+        s.clockIn ? formatTime(s.clockIn) : '',
+        s.clockOut ? formatTime(s.clockOut) : '',
+        hm(s.breakMinutes), hm(s.minutes), dec(s.minutes),
+      ])
+    }
+    downloadCSV(`勤怠_日次_${selectedMonth}.csv`, rows)
+  }
+
+  const exportRaw = () => {
+    const rows: (string | number)[][] = [['日付', '名前', '種別', '時刻', '位置判定']]
+    const label = { clock_in: '出勤', clock_out: '退勤', break_start: '休憩開始', break_end: '休憩終了' }
+    for (const s of filtered) {
+      for (const r of s.records) {
+        rows.push([
+          s.date, s.name, label[r.type],
+          new Date(r.timestamp).toLocaleString('ja-JP'),
+          r.is_valid ? 'OK' : '要確認',
+        ])
+      }
+    }
+    downloadCSV(`勤怠_打刻明細_${selectedMonth}.csv`, rows)
+  }
+
+  const exportMonthly = () => {
+    // スタッフごとに月間集計
+    const byStaff = new Map<string, { days: Set<string>; work: number; brk: number }>()
+    for (const s of filtered) {
+      if (!byStaff.has(s.name)) byStaff.set(s.name, { days: new Set(), work: 0, brk: 0 })
+      const e = byStaff.get(s.name)!
+      if (s.clockIn && s.clockOut) e.days.add(s.date)
+      e.work += s.minutes
+      e.brk += s.breakMinutes
+    }
+    const rows: (string | number)[][] = [['名前', '出勤日数', '勤務時間(h:m)', '勤務時間(時間)', '休憩合計(h:m)']]
+    for (const [name, e] of byStaff.entries()) {
+      rows.push([name, e.days.size, hm(e.work), dec(e.work), hm(e.brk)])
+    }
+    downloadCSV(`勤怠_月次集計_${selectedMonth}.csv`, rows)
+  }
+
   const fetchMessages = useCallback(async () => {
     const { data } = await supabase
       .from('messages')
@@ -210,6 +273,21 @@ export default function AdminPage() {
               className="w-full px-3 py-2 rounded-lg text-sm border focus:outline-none"
               style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
             />
+          </div>
+        </div>
+
+        {/* CSVダウンロード */}
+        <div className="card p-5">
+          <div className="text-xs tracking-[0.2em] mb-3" style={{ color: 'var(--gray)' }}>
+            CSV ダウンロード — {selectedMonth.replace('-', '年')}月{filterName && `（${filterName}）`}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={exportMonthly} className="btn-gold text-sm px-4 py-2 rounded-lg">月次集計（給与用）</button>
+            <button onClick={exportDaily} className="btn-outline text-sm px-4 py-2 rounded-lg">日次集計</button>
+            <button onClick={exportRaw} className="btn-outline text-sm px-4 py-2 rounded-lg">打刻明細</button>
+          </div>
+          <div className="text-xs mt-2" style={{ color: 'var(--gray)' }}>
+            Excel・Googleスプレッドシートで開けます。上の「月」「スタッフ名」の絞り込みがそのまま反映されます。
           </div>
         </div>
 
