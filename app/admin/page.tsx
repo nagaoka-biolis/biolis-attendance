@@ -45,6 +45,41 @@ export default function AdminPage() {
   const [newStaff, setNewStaff] = useState({ name: '', email: '', password: '', role: 'staff' })
   const [staffSaving, setStaffSaving] = useState(false)
   const [staffMsg, setStaffMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+  const [tab, setTab] = useState<'attendance' | 'staff' | 'messages'>('attendance')
+  const [staffList, setStaffList] = useState<Profile[]>([])
+
+  const fetchStaff = useCallback(async () => {
+    const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: true })
+    if (data) setStaffList(data as Profile[])
+  }, [])
+
+  const authHeader = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    return { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` }
+  }
+
+  const handleResetPassword = async (s: Profile) => {
+    const pw = window.prompt(`${s.name} さんの新しいパスワードを入力してください（6文字以上）`)
+    if (!pw) return
+    if (pw.length < 6) { alert('パスワードは6文字以上にしてください'); return }
+    const res = await fetch('/api/reset-password', {
+      method: 'POST', headers: await authHeader(),
+      body: JSON.stringify({ userId: s.id, password: pw }),
+    })
+    const r = await res.json().catch(() => ({}))
+    alert(res.ok ? `${s.name} さんのパスワードを再設定しました` : `失敗: ${r.error ?? '不明なエラー'}`)
+  }
+
+  const handleDeleteStaff = async (s: Profile) => {
+    if (!window.confirm(`${s.name} さんを削除します。\nこのスタッフのアカウントと打刻履歴・連絡もすべて削除され、元に戻せません。\n本当に削除しますか？`)) return
+    const res = await fetch('/api/delete-staff', {
+      method: 'POST', headers: await authHeader(),
+      body: JSON.stringify({ userId: s.id }),
+    })
+    const r = await res.json().catch(() => ({}))
+    if (res.ok) { await fetchStaff(); await fetchData() }
+    else alert(`失敗: ${r.error ?? '不明なエラー'}`)
+  }
 
   const handleAddStaff = async () => {
     setStaffSaving(true)
@@ -59,6 +94,7 @@ export default function AdminPage() {
     if (res.ok) {
       setStaffMsg({ text: `${result.name} さんを登録しました（${newStaff.email}）`, type: 'success' })
       setNewStaff({ name: '', email: '', password: '', role: 'staff' })
+      await fetchStaff()
     } else {
       setStaffMsg({ text: result.error ?? '登録に失敗しました', type: 'error' })
     }
@@ -227,9 +263,10 @@ export default function AdminPage() {
       setProfile(p ?? { id: user.id, name: '管理者', role: 'admin', created_at: '' })
       await fetchData()
       await fetchMessages()
+      await fetchStaff()
     }
     init()
-  }, [router, fetchData, fetchMessages])
+  }, [router, fetchData, fetchMessages, fetchStaff])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -271,9 +308,40 @@ export default function AdminPage() {
         </button>
       </header>
 
+      {/* タブ */}
+      <div className="max-w-3xl mx-auto px-5 pt-5">
+        <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--gray-light)' }}>
+          {([
+            ['attendance', '勤怠'],
+            ['staff', 'スタッフ管理'],
+            ['messages', '連絡'],
+          ] as const).map(([key, label]) => {
+            const unresolved = key === 'messages' ? messages.filter(m => !m.resolved).length : 0
+            return (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`flex-1 py-2.5 rounded-lg text-sm tracking-wider transition ${tab === key ? 'shadow-sm' : ''}`}
+                style={{
+                  background: tab === key ? '#fff' : 'transparent',
+                  color: tab === key ? 'var(--navy)' : 'var(--gray)',
+                  fontWeight: tab === key ? 600 : 400,
+                }}
+              >
+                {label}
+                {unresolved > 0 && (
+                  <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{unresolved}</span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
       <div className="max-w-3xl mx-auto px-5 py-6 space-y-5">
 
         {/* フィルター */}
+        {tab === 'attendance' && (
         <div className="card p-5 flex flex-col sm:flex-row gap-3 items-center">
           <div className="flex-1">
             <label className="text-xs tracking-widest block mb-1" style={{ color: 'var(--gray)' }}>月を選択</label>
@@ -297,8 +365,10 @@ export default function AdminPage() {
             />
           </div>
         </div>
+        )}
 
         {/* スタッフ追加 */}
+        {tab === 'staff' && (
         <div className="card p-5">
           <div className="text-xs tracking-[0.2em] mb-3" style={{ color: 'var(--gray)' }}>
             ADD STAFF — スタッフを追加
@@ -353,8 +423,57 @@ export default function AdminPage() {
             登録したメールアドレスと初期パスワードをスタッフに伝えてください。スタッフはそれでログインし、打刻できます。
           </div>
         </div>
+        )}
+
+        {/* スタッフ一覧 */}
+        {tab === 'staff' && (
+        <div className="card p-5">
+          <div className="text-xs tracking-[0.2em] mb-4" style={{ color: 'var(--gray)' }}>
+            STAFF LIST — スタッフ一覧（{staffList.length}名）
+          </div>
+          {staffList.length === 0 ? (
+            <p className="text-sm text-center py-4" style={{ color: 'var(--gray)' }}>スタッフがいません</p>
+          ) : (
+            <div className="space-y-2">
+              {staffList.map(s => (
+                <div key={s.id} className="flex items-center justify-between gap-2 py-2.5 border-b border-gray-50 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium" style={{ color: 'var(--navy)' }}>{s.name}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      s.role === 'admin' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {s.role === 'admin' ? '管理者' : 'スタッフ'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleResetPassword(s)}
+                      className="text-xs px-3 py-1 rounded-full border hover:bg-white transition"
+                      style={{ borderColor: 'var(--gray-light)', color: 'var(--gray)' }}
+                    >
+                      パスワード再設定
+                    </button>
+                    {s.id !== profile.id && (
+                      <button
+                        onClick={() => handleDeleteStaff(s)}
+                        className="text-xs px-3 py-1 rounded-full border border-red-200 text-red-500 hover:bg-red-50 transition"
+                      >
+                        削除
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="text-xs mt-3" style={{ color: 'var(--gray)' }}>
+            パスワードを忘れたスタッフには「パスワード再設定」で新しいパスワードを設定し、本人に伝えてください。
+          </div>
+        </div>
+        )}
 
         {/* CSVダウンロード */}
+        {tab === 'attendance' && (
         <div className="card p-5">
           <div className="text-xs tracking-[0.2em] mb-3" style={{ color: 'var(--gray)' }}>
             CSV ダウンロード — {selectedMonth.replace('-', '年')}月{filterName && `（${filterName}）`}
@@ -368,8 +487,10 @@ export default function AdminPage() {
             Excel・Googleスプレッドシートで開けます。上の「月」「スタッフ名」の絞り込みがそのまま反映されます。
           </div>
         </div>
+        )}
 
         {/* 月次集計（スタッフ別） */}
+        {tab === 'attendance' && (
         <div className="card p-5">
           <div className="text-xs tracking-[0.2em] mb-4" style={{ color: 'var(--gray)' }}>
             MONTHLY SUMMARY — {selectedMonth.replace('-', '年')}月
@@ -389,8 +510,10 @@ export default function AdminPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* スタッフからの連絡 */}
+        {tab === 'messages' && (
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
             <div className="text-xs tracking-[0.2em]" style={{ color: 'var(--gray)' }}>
@@ -432,8 +555,10 @@ export default function AdminPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* 日別打刻ログ */}
+        {tab === 'attendance' && (
         <div className="card p-5">
           <div className="text-xs tracking-[0.2em] mb-4" style={{ color: 'var(--gray)' }}>
             DAILY LOG
@@ -540,6 +665,7 @@ export default function AdminPage() {
             </div>
           )}
         </div>
+        )}
 
       </div>
     </div>
