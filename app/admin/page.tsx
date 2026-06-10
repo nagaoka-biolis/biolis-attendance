@@ -36,7 +36,7 @@ export default function AdminPage() {
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   })
-  const [filterName, setFilterName] = useState('')
+  const [selectedStaffId, setSelectedStaffId] = useState('')
   const [loading, setLoading] = useState(true)
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -274,15 +274,26 @@ export default function AdminPage() {
   }
 
   const filtered = summaries.filter(s =>
-    filterName === '' || s.name.includes(filterName)
+    selectedStaffId === '' || s.userId === selectedStaffId
   )
 
-  // スタッフ別月次集計
-  const staffMonthly = filtered.reduce((acc, s) => {
-    if (!acc[s.name]) acc[s.name] = 0
-    acc[s.name] += s.minutes
+  // 同姓判定（プルダウンの表示用）
+  const nameCounts = staffList.reduce((acc, s) => {
+    acc[s.name] = (acc[s.name] ?? 0) + 1
     return acc
   }, {} as Record<string, number>)
+  const staffLabel = (s: Profile) => nameCounts[s.name] > 1 ? `${s.name}（ID:${s.id.slice(0, 4)}）` : s.name
+  const selectedStaffName = staffList.find(s => s.id === selectedStaffId)?.name ?? ''
+
+  // スタッフ別月次集計（同姓を分けるため userId をキーに）
+  const staffMonthly = Array.from(
+    filtered.reduce((acc, s) => {
+      const cur = acc.get(s.userId) ?? { name: s.name, mins: 0 }
+      cur.mins += s.minutes
+      acc.set(s.userId, cur)
+      return acc
+    }, new Map<string, { name: string; mins: number }>()).values()
+  )
 
   if (!profile) {
     return (
@@ -354,15 +365,18 @@ export default function AdminPage() {
             />
           </div>
           <div className="flex-1">
-            <label className="text-xs tracking-widest block mb-1" style={{ color: 'var(--gray)' }}>スタッフ名で絞り込み</label>
-            <input
-              type="text"
-              value={filterName}
-              onChange={e => setFilterName(e.target.value)}
-              placeholder="例: 佐々木"
+            <label className="text-xs tracking-widest block mb-1" style={{ color: 'var(--gray)' }}>スタッフで絞り込み</label>
+            <select
+              value={selectedStaffId}
+              onChange={e => setSelectedStaffId(e.target.value)}
               className="w-full px-3 py-2 rounded-lg text-sm border focus:outline-none"
               style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
-            />
+            >
+              <option value="">全員</option>
+              {staffList.map(s => (
+                <option key={s.id} value={s.id}>{staffLabel(s)}</option>
+              ))}
+            </select>
           </div>
         </div>
         )}
@@ -476,7 +490,7 @@ export default function AdminPage() {
         {tab === 'attendance' && (
         <div className="card p-5">
           <div className="text-xs tracking-[0.2em] mb-3" style={{ color: 'var(--gray)' }}>
-            CSV ダウンロード — {selectedMonth.replace('-', '年')}月{filterName && `（${filterName}）`}
+            CSV ダウンロード — {selectedMonth.replace('-', '年')}月{selectedStaffName && `（${selectedStaffName}）`}
           </div>
           <div className="flex flex-wrap gap-2">
             <button onClick={exportMonthly} className="btn-gold text-sm px-4 py-2 rounded-lg">月次集計（給与用）</button>
@@ -495,15 +509,15 @@ export default function AdminPage() {
           <div className="text-xs tracking-[0.2em] mb-4" style={{ color: 'var(--gray)' }}>
             MONTHLY SUMMARY — {selectedMonth.replace('-', '年')}月
           </div>
-          {Object.keys(staffMonthly).length === 0 ? (
+          {staffMonthly.length === 0 ? (
             <p className="text-sm text-center py-4" style={{ color: 'var(--gray)' }}>データがありません</p>
           ) : (
             <div className="space-y-2">
-              {Object.entries(staffMonthly).sort((a, b) => b[1] - a[1]).map(([name, mins]) => (
-                <div key={name} className="flex items-center justify-between py-2 border-b border-gray-50">
-                  <span className="text-sm font-medium" style={{ color: 'var(--navy)' }}>{name}</span>
+              {[...staffMonthly].sort((a, b) => b.mins - a.mins).map((e, i) => (
+                <div key={i} className="flex items-center justify-between py-2 border-b border-gray-50">
+                  <span className="text-sm font-medium" style={{ color: 'var(--navy)' }}>{e.name}</span>
                   <span className="text-sm" style={{ color: 'var(--gold)' }}>
-                    {Math.floor(mins / 60)}h {Math.floor(mins % 60)}m
+                    {Math.floor(e.mins / 60)}h {Math.floor(e.mins % 60)}m
                   </span>
                 </div>
               ))}
