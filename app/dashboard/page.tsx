@@ -36,6 +36,11 @@ export default function DashboardPage() {
   const [msgBody, setMsgBody] = useState('')
   const [msgSending, setMsgSending] = useState(false)
   const [myMessages, setMyMessages] = useState<Message[]>([])
+  const [historyMonth, setHistoryMonth] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  })
+  const [history, setHistory] = useState<{ date: string; clockIn: string | null; clockOut: string | null; breakMin: number; workMin: number }[]>([])
 
   // 時計
   useEffect(() => {
@@ -64,6 +69,46 @@ export default function DashboardPage() {
       .limit(10)
     if (data) setMyMessages(data as Message[])
   }, [])
+
+  const fetchHistory = useCallback(async (userId: string, month: string) => {
+    const [year, mon] = month.split('-').map(Number)
+    const start = new Date(year, mon - 1, 1).toISOString()
+    const end = new Date(year, mon, 0, 23, 59, 59).toISOString()
+    const { data } = await supabase
+      .from('attendance')
+      .select('*')
+      .eq('user_id', userId)
+      .gte('timestamp', start)
+      .lte('timestamp', end)
+      .order('timestamp', { ascending: true })
+    if (!data) { setHistory([]); return }
+
+    const map = new Map<string, { date: string; clockIn: string | null; clockOut: string | null; breakMin: number; workMin: number }>()
+    const bTmp = new Map<string, string | null>()
+    for (const r of data as Attendance[]) {
+      const date = new Date(r.timestamp).toLocaleDateString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric' })
+      if (!map.has(date)) map.set(date, { date, clockIn: null, clockOut: null, breakMin: 0, workMin: 0 })
+      const e = map.get(date)!
+      if (r.type === 'clock_in' && !e.clockIn) e.clockIn = r.timestamp
+      if (r.type === 'clock_out') e.clockOut = r.timestamp
+      if (r.type === 'break_start') bTmp.set(date, r.timestamp)
+      if (r.type === 'break_end') {
+        const bs = bTmp.get(date)
+        if (bs) { e.breakMin += (new Date(r.timestamp).getTime() - new Date(bs).getTime()) / 60000; bTmp.set(date, null) }
+      }
+    }
+    for (const e of map.values()) {
+      if (e.clockIn && e.clockOut) {
+        const gross = (new Date(e.clockOut).getTime() - new Date(e.clockIn).getTime()) / 60000
+        e.workMin = Math.max(0, gross - e.breakMin)
+      }
+    }
+    setHistory(Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date)))
+  }, [])
+
+  useEffect(() => {
+    if (profile) fetchHistory(profile.id, historyMonth)
+  }, [profile, historyMonth, fetchHistory])
 
   useEffect(() => {
     const init = async () => {
@@ -142,6 +187,7 @@ export default function DashboardPage() {
       const label = { clock_in: '出勤', clock_out: '退勤', break_start: '休憩開始', break_end: '休憩終了' }[type]
       setMessage({ text: `${label}を記録しました`, type: 'success' })
       await fetchTodayRecords(profile.id)
+      await fetchHistory(profile.id, historyMonth)
     }
     setLoading(false)
   }
@@ -330,6 +376,41 @@ export default function DashboardPage() {
                 ))}
               </div>
             </>
+          )}
+        </div>
+
+        {/* 勤怠履歴 */}
+        <div className="card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-xs tracking-[0.2em]" style={{ color: 'var(--gray)' }}>
+              MY HISTORY — 勤怠履歴
+            </div>
+            <input
+              type="month"
+              value={historyMonth}
+              onChange={e => setHistoryMonth(e.target.value)}
+              className="px-2 py-1 rounded-lg text-xs border focus:outline-none"
+              style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
+            />
+          </div>
+          {history.length === 0 ? (
+            <p className="text-sm text-center py-4" style={{ color: 'var(--gray)' }}>この月の記録はありません</p>
+          ) : (
+            <div className="space-y-2">
+              {history.map(h => (
+                <div key={h.date} className="flex items-center justify-between text-sm py-1.5 border-b border-gray-50">
+                  <span className="text-xs" style={{ color: 'var(--gray)' }}>
+                    {new Date(h.date).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' })}
+                  </span>
+                  <span style={{ color: 'var(--navy)' }}>
+                    {h.clockIn ? formatTime(h.clockIn) : '—'}〜{h.clockOut ? formatTime(h.clockOut) : '—'}
+                  </span>
+                  <span className="text-xs" style={{ color: 'var(--gold)' }}>
+                    {h.workMin > 0 ? `${Math.floor(h.workMin / 60)}h ${Math.floor(h.workMin % 60)}m` : '—'}
+                  </span>
+                </div>
+              ))}
+            </div>
           )}
         </div>
 
