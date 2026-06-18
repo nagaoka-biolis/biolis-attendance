@@ -4,6 +4,16 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "BiOLiS CLINIC | 勤怠管理",
   description: "BiOLiS CLINIC 勤怠管理システム",
+  manifest: "/manifest.json",
+  icons: {
+    icon: "/icon-192.png",
+    apple: "/apple-touch-icon.png",
+  },
+  appleWebApp: {
+    capable: true,
+    title: "BiOLiS勤怠",
+    statusBarStyle: "black-translucent",
+  },
 };
 
 export default function RootLayout({
