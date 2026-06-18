@@ -49,6 +49,30 @@ export default function AdminPage() {
   const [staffList, setStaffList] = useState<Profile[]>([])
   const [manual, setManual] = useState({ userId: '', type: 'clock_in', datetime: '' })
   const [manualMsg, setManualMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+  const [standardMinutes, setStandardMinutes] = useState(480)  // 所定労働時間（分）デフォルト8h
+  const [settingHours, setSettingHours] = useState('8')
+  const [settingMsg, setSettingMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+
+  const fetchSettings = useCallback(async () => {
+    const { data } = await supabase.from('app_settings').select('value').eq('key', 'standard_work_minutes').maybeSingle()
+    const v = (data as { value?: string } | null)?.value
+    if (v) { setStandardMinutes(Number(v)); setSettingHours(String(Number(v) / 60)) }
+  }, [])
+
+  const handleSaveSetting = async () => {
+    const mins = Math.round(Number(settingHours) * 60)
+    if (!Number.isFinite(mins) || mins <= 0) { setSettingMsg({ text: '正しい時間を入力してください', type: 'error' }); return }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from('app_settings') as any).upsert({ key: 'standard_work_minutes', value: String(mins) })
+    if (error) {
+      setSettingMsg({ text: '保存に失敗しました（設定テーブル未作成の可能性）', type: 'error' })
+    } else {
+      setStandardMinutes(mins)
+      setSettingMsg({ text: `所定労働時間を ${Number(settingHours)} 時間に設定しました`, type: 'success' })
+    }
+  }
+
+  const overtimeOf = (workMinutes: number) => workMinutes > standardMinutes ? workMinutes - standardMinutes : 0
 
   const handleManualAdd = async () => {
     if (!manual.userId || !manual.datetime) {
@@ -193,18 +217,19 @@ export default function AdminPage() {
   }
 
   const exportMonthly = () => {
-    // スタッフごとに月間集計
-    const byStaff = new Map<string, { days: Set<string>; work: number; brk: number }>()
+    // スタッフごとに月間集計（同姓を分けるため userId をキーに）
+    const byStaff = new Map<string, { name: string; days: Set<string>; work: number; ot: number; brk: number }>()
     for (const s of filtered) {
-      if (!byStaff.has(s.name)) byStaff.set(s.name, { days: new Set(), work: 0, brk: 0 })
-      const e = byStaff.get(s.name)!
+      if (!byStaff.has(s.userId)) byStaff.set(s.userId, { name: s.name, days: new Set(), work: 0, ot: 0, brk: 0 })
+      const e = byStaff.get(s.userId)!
       if (s.clockIn && s.clockOut) e.days.add(s.date)
       e.work += s.minutes
+      e.ot += overtimeOf(s.minutes)
       e.brk += s.breakMinutes
     }
-    const rows: (string | number)[][] = [['名前', '出勤日数', '勤務時間(h:m)', '勤務時間(時間)', '休憩合計(h:m)']]
-    for (const [name, e] of byStaff.entries()) {
-      rows.push([name, e.days.size, hm(e.work), dec(e.work), hm(e.brk)])
+    const rows: (string | number)[][] = [['名前', '出勤日数', '勤務時間(h:m)', '勤務時間(時間)', '残業(h:m)', '残業(時間)', '休憩合計(h:m)']]
+    for (const e of byStaff.values()) {
+      rows.push([e.name, e.days.size, hm(e.work), dec(e.work), hm(e.ot), dec(e.ot), hm(e.brk)])
     }
     downloadCSV(`勤怠_月次集計_${selectedMonth}.csv`, rows)
   }
@@ -286,9 +311,10 @@ export default function AdminPage() {
       await fetchData()
       await fetchMessages()
       await fetchStaff()
+      await fetchSettings()
     }
     init()
-  }, [router, fetchData, fetchMessages, fetchStaff])
+  }, [router, fetchData, fetchMessages, fetchStaff, fetchSettings])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -310,11 +336,12 @@ export default function AdminPage() {
   // スタッフ別月次集計（同姓を分けるため userId をキーに）
   const staffMonthly = Array.from(
     filtered.reduce((acc, s) => {
-      const cur = acc.get(s.userId) ?? { name: s.name, mins: 0 }
+      const cur = acc.get(s.userId) ?? { name: s.name, mins: 0, ot: 0 }
       cur.mins += s.minutes
+      cur.ot += overtimeOf(s.minutes)
       acc.set(s.userId, cur)
       return acc
-    }, new Map<string, { name: string; mins: number }>()).values()
+    }, new Map<string, { name: string; mins: number; ot: number }>()).values()
   )
 
   if (!profile) {
@@ -525,6 +552,37 @@ export default function AdminPage() {
         </div>
         )}
 
+        {/* 所定労働時間の設定 */}
+        {tab === 'attendance' && (
+        <div className="card p-5">
+          <div className="text-xs tracking-[0.2em] mb-3" style={{ color: 'var(--gray)' }}>
+            SETTINGS — 所定労働時間（残業判定の基準）
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-sm" style={{ color: 'var(--navy)' }}>1日</span>
+            <input
+              type="number" step="0.5" min="1"
+              value={settingHours}
+              onChange={e => setSettingHours(e.target.value)}
+              className="w-24 px-3 py-2 rounded-lg text-sm border focus:outline-none"
+              style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
+            />
+            <span className="text-sm" style={{ color: 'var(--navy)' }}>時間を超えた分を残業とする</span>
+            <button onClick={handleSaveSetting} className="btn-gold px-5 py-2 rounded-lg text-sm">保存</button>
+          </div>
+          {settingMsg && (
+            <div className={`mt-3 text-sm rounded-lg px-3 py-2 ${
+              settingMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
+            }`}>
+              {settingMsg.text}
+            </div>
+          )}
+          <div className="text-xs mt-2" style={{ color: 'var(--gray)' }}>
+            現在の設定：1日 {standardMinutes / 60} 時間。いつでも変更できます。
+          </div>
+        </div>
+        )}
+
         {/* 打刻の手動追加 */}
         {tab === 'attendance' && (
         <div className="card p-5">
@@ -586,9 +644,16 @@ export default function AdminPage() {
               {[...staffMonthly].sort((a, b) => b.mins - a.mins).map((e, i) => (
                 <div key={i} className="flex items-center justify-between py-2 border-b border-gray-50">
                   <span className="text-sm font-medium" style={{ color: 'var(--navy)' }}>{e.name}</span>
-                  <span className="text-sm" style={{ color: 'var(--gold)' }}>
-                    {Math.floor(e.mins / 60)}h {Math.floor(e.mins % 60)}m
-                  </span>
+                  <div className="flex items-center gap-4">
+                    {e.ot > 0 && (
+                      <span className="text-xs" style={{ color: '#EF4444' }}>
+                        残業 {Math.floor(e.ot / 60)}h {Math.floor(e.ot % 60)}m
+                      </span>
+                    )}
+                    <span className="text-sm" style={{ color: 'var(--gold)' }}>
+                      {Math.floor(e.mins / 60)}h {Math.floor(e.mins % 60)}m
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -661,6 +726,7 @@ export default function AdminPage() {
                     <th className="text-center pb-3 font-normal">出勤</th>
                     <th className="text-center pb-3 font-normal">退勤</th>
                     <th className="text-center pb-3 font-normal">休憩</th>
+                    <th className="text-right pb-3 font-normal">残業</th>
                     <th className="text-right pb-3 font-normal">勤務時間</th>
                   </tr>
                 </thead>
@@ -685,13 +751,16 @@ export default function AdminPage() {
                         <td className="py-2.5 text-center text-xs" style={{ color: s.breakMinutes > 0 ? 'var(--gray)' : 'var(--gray-light)' }}>
                           {s.breakMinutes > 0 ? `${Math.floor(s.breakMinutes / 60)}h ${Math.floor(s.breakMinutes % 60)}m` : '—'}
                         </td>
+                        <td className="py-2.5 text-right text-xs" style={{ color: overtimeOf(s.minutes) > 0 ? '#EF4444' : 'var(--gray-light)' }}>
+                          {overtimeOf(s.minutes) > 0 ? `${Math.floor(overtimeOf(s.minutes) / 60)}h ${Math.floor(overtimeOf(s.minutes) % 60)}m` : '—'}
+                        </td>
                         <td className="py-2.5 text-right" style={{ color: s.minutes > 0 ? 'var(--gold)' : 'var(--gray)' }}>
                           {s.minutes > 0 ? `${Math.floor(s.minutes / 60)}h ${Math.floor(s.minutes % 60)}m` : '—'}
                         </td>
                       </tr>
                       {expandedKey === s.key && (
                         <tr>
-                          <td colSpan={6} className="px-4 py-3 bg-amber-50/40">
+                          <td colSpan={7} className="px-4 py-3 bg-amber-50/40">
                             <div className="text-xs tracking-wider mb-2" style={{ color: 'var(--gray)' }}>
                               打刻の詳細（{s.name} ・ {formatDate(s.clockIn || s.date)}）
                             </div>
