@@ -47,6 +47,28 @@ export default function AdminPage() {
   const [staffMsg, setStaffMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [tab, setTab] = useState<'attendance' | 'staff' | 'messages'>('attendance')
   const [staffList, setStaffList] = useState<Profile[]>([])
+  const [manual, setManual] = useState({ userId: '', type: 'clock_in', datetime: '' })
+  const [manualMsg, setManualMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+
+  const handleManualAdd = async () => {
+    if (!manual.userId || !manual.datetime) {
+      setManualMsg({ text: 'スタッフと日時を選んでください', type: 'error' }); return
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from('attendance') as any).insert({
+      user_id: manual.userId,
+      type: manual.type,
+      timestamp: new Date(manual.datetime).toISOString(),
+      is_valid: true,
+    })
+    if (error) {
+      setManualMsg({ text: '追加に失敗しました', type: 'error' })
+    } else {
+      setManualMsg({ text: '打刻を追加しました', type: 'success' })
+      setManual({ ...manual, datetime: '' })
+      await fetchData()
+    }
+  }
 
   const fetchStaff = useCallback(async () => {
     const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: true })
@@ -500,6 +522,54 @@ export default function AdminPage() {
           <div className="text-xs mt-2" style={{ color: 'var(--gray)' }}>
             Excel・Googleスプレッドシートで開けます。上の「月」「スタッフ名」の絞り込みがそのまま反映されます。
           </div>
+        </div>
+        )}
+
+        {/* 打刻の手動追加 */}
+        {tab === 'attendance' && (
+        <div className="card p-5">
+          <div className="text-xs tracking-[0.2em] mb-3" style={{ color: 'var(--gray)' }}>
+            ADD PUNCH — 打刻の手動追加（押し忘れた分）
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <select
+              value={manual.userId}
+              onChange={e => setManual({ ...manual, userId: e.target.value })}
+              className="px-3 py-2 rounded-lg text-sm border focus:outline-none"
+              style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
+            >
+              <option value="">スタッフを選択</option>
+              {staffList.map(s => <option key={s.id} value={s.id}>{staffLabel(s)}</option>)}
+            </select>
+            <select
+              value={manual.type}
+              onChange={e => setManual({ ...manual, type: e.target.value })}
+              className="px-3 py-2 rounded-lg text-sm border focus:outline-none"
+              style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
+            >
+              <option value="clock_in">出勤</option>
+              <option value="clock_out">退勤</option>
+              <option value="break_start">休憩開始</option>
+              <option value="break_end">休憩終了</option>
+            </select>
+            <input
+              type="datetime-local"
+              value={manual.datetime}
+              onChange={e => setManual({ ...manual, datetime: e.target.value })}
+              className="px-3 py-2 rounded-lg text-sm border focus:outline-none"
+              style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
+            />
+          </div>
+          <button onClick={handleManualAdd} className="btn-gold px-6 py-2.5 rounded-lg text-sm tracking-[0.15em] mt-3">
+            打刻を追加
+          </button>
+          {manualMsg && (
+            <div className={`mt-3 text-sm rounded-lg px-3 py-2 ${
+              manualMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
+            }`}>
+              {manualMsg.text}
+            </div>
+          )}
         </div>
         )}
 
