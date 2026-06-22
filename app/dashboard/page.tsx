@@ -36,6 +36,10 @@ export default function DashboardPage() {
   const [msgBody, setMsgBody] = useState('')
   const [msgSending, setMsgSending] = useState(false)
   const [myMessages, setMyMessages] = useState<Message[]>([])
+  const [pwNew, setPwNew] = useState('')
+  const [pwConfirm, setPwConfirm] = useState('')
+  const [pwSaving, setPwSaving] = useState(false)
+  const [pwMsg, setPwMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [historyMonth, setHistoryMonth] = useState(() => {
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -195,6 +199,19 @@ export default function DashboardPage() {
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push('/')
+  }
+
+  // 本人によるパスワード変更（ログイン中の自分のセッションで実行・管理者権限不要）
+  const handleChangePassword = async () => {
+    setPwMsg(null)
+    if (pwNew.length < 6) { setPwMsg({ text: 'パスワードは6文字以上にしてください', type: 'error' }); return }
+    if (pwNew !== pwConfirm) { setPwMsg({ text: '確認用パスワードが一致しません', type: 'error' }); return }
+    setPwSaving(true)
+    const { error } = await supabase.auth.updateUser({ password: pwNew })
+    setPwSaving(false)
+    if (error) { setPwMsg({ text: `変更に失敗しました: ${error.message}`, type: 'error' }); return }
+    setPwNew(''); setPwConfirm('')
+    setPwMsg({ text: 'パスワードを変更しました。次回から新しいパスワードでログインしてください。', type: 'success' })
   }
 
   const lastClockIn = [...todayRecords].reverse().find(r => r.type === 'clock_in')
@@ -461,6 +478,47 @@ export default function DashboardPage() {
               </div>
             </>
           )}
+        </div>
+
+        {/* パスワード変更（本人） */}
+        <div className="card p-6">
+          <div className="text-xs tracking-[0.2em] mb-1" style={{ color: 'var(--gray)' }}>
+            CHANGE PASSWORD
+          </div>
+          <div className="text-xs mb-3" style={{ color: 'var(--gray)' }}>
+            自分のログインパスワードを変更できます（勤怠・在庫アプリ共通）
+          </div>
+          <input
+            type="password"
+            value={pwNew}
+            onChange={e => setPwNew(e.target.value)}
+            placeholder="新しいパスワード（6文字以上）"
+            className="w-full px-3 py-2 rounded-lg text-sm border focus:outline-none mb-2"
+            style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
+          />
+          <input
+            type="password"
+            value={pwConfirm}
+            onChange={e => setPwConfirm(e.target.value)}
+            placeholder="新しいパスワード（確認）"
+            className="w-full px-3 py-2 rounded-lg text-sm border focus:outline-none"
+            style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
+          />
+          {pwMsg && (
+            <div className={`text-xs mt-2 ${pwMsg.type === 'success' ? 'text-emerald-600' : 'text-red-500'}`}>
+              {pwMsg.text}
+            </div>
+          )}
+          <button
+            onClick={handleChangePassword}
+            disabled={pwSaving || !pwNew || !pwConfirm}
+            className="btn-gold w-full py-3 rounded-lg text-sm tracking-[0.15em] mt-3"
+          >
+            {pwSaving ? '...' : 'パスワードを変更'}
+          </button>
+          <div className="text-xs mt-3" style={{ color: 'var(--gray)' }}>
+            忘れてしまった場合は、管理者に「パスワード再設定」を依頼してください。
+          </div>
         </div>
       </div>
     </div>
