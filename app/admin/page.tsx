@@ -47,6 +47,7 @@ export default function AdminPage() {
   const [staffMsg, setStaffMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [tab, setTab] = useState<'attendance' | 'staff' | 'messages'>('attendance')
   const [staffList, setStaffList] = useState<Profile[]>([])
+  const [invRoles, setInvRoles] = useState<Record<string, string>>({})
   const [manual, setManual] = useState({ userId: '', type: 'clock_in', datetime: '' })
   const [manualMsg, setManualMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [standardMinutes, setStandardMinutes] = useState(480)  // 所定労働時間（分）デフォルト8h
@@ -97,7 +98,27 @@ export default function AdminPage() {
   const fetchStaff = useCallback(async () => {
     const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: true })
     if (data) setStaffList(data as Profile[])
+    // 在庫アプリのロールも取得（userId → role のマップ）
+    const { data: inv } = await supabase.from('inventory_roles').select('id, role')
+    if (inv) {
+      const map: Record<string, string> = {}
+      for (const r of inv as { id: string; role: string }[]) map[r.id] = r.role
+      setInvRoles(map)
+    }
   }, [])
+
+  const handleSetInventoryRole = async (s: Profile, role: string) => {
+    setInvRoles(prev => ({ ...prev, [s.id]: role }))  // 楽観的更新
+    const res = await fetch('/api/set-inventory-role', {
+      method: 'POST', headers: await authHeader(),
+      body: JSON.stringify({ userId: s.id, role }),
+    })
+    if (!res.ok) {
+      const r = await res.json().catch(() => ({}))
+      alert(`失敗: ${r.error ?? '不明なエラー'}`)
+      await fetchStaff()  // 失敗時は再取得して戻す
+    }
+  }
 
   const authHeader = async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -509,6 +530,20 @@ export default function AdminPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs" style={{ color: 'var(--gray)' }}>在庫</span>
+                      <select
+                        value={invRoles[s.id] ?? ''}
+                        onChange={e => handleSetInventoryRole(s, e.target.value)}
+                        className="text-xs px-2 py-1 rounded-full border bg-white"
+                        style={{ borderColor: 'var(--gray-light)', color: 'var(--navy)' }}
+                      >
+                        <option value="">なし</option>
+                        <option value="staff">スタッフ</option>
+                        <option value="orderer">発注担当</option>
+                        <option value="admin">管理者</option>
+                      </select>
+                    </div>
                     <button
                       onClick={() => handleResetPassword(s)}
                       className="text-xs px-3 py-1 rounded-full border hover:bg-white transition"
@@ -530,7 +565,8 @@ export default function AdminPage() {
             </div>
           )}
           <div className="text-xs mt-3" style={{ color: 'var(--gray)' }}>
-            パスワードを忘れたスタッフには「パスワード再設定」で新しいパスワードを設定し、本人に伝えてください。
+            パスワードを忘れたスタッフには「パスワード再設定」で新しいパスワードを設定し、本人に伝えてください。<br />
+            「在庫」欄で在庫管理アプリの権限を設定できます（なし＝在庫アプリを使えない / スタッフ・発注担当・管理者）。勤怠の権限とは別に付与されます。
           </div>
         </div>
         )}
