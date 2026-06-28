@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase, Profile, Attendance, Message } from '@/lib/supabase'
+import { supabase, Profile, Attendance, Message, Shift } from '@/lib/supabase'
+import ShiftCalendar from '@/components/ShiftCalendar'
 
 type MessageWithProfile = Message & { profiles: Profile | null }
 
@@ -45,8 +46,20 @@ export default function AdminPage() {
   const [newStaff, setNewStaff] = useState({ name: '', email: '', password: '', role: 'staff' })
   const [staffSaving, setStaffSaving] = useState(false)
   const [staffMsg, setStaffMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
-  const [tab, setTab] = useState<'attendance' | 'staff' | 'messages'>('attendance')
+  const [tab, setTab] = useState<'attendance' | 'shift' | 'staff' | 'messages'>('attendance')
   const [staffList, setStaffList] = useState<Profile[]>([])
+  const [shiftStaffId, setShiftStaffId] = useState('')
+  const [adminShifts, setAdminShifts] = useState<Shift[]>([])
+
+  const fetchAdminShifts = useCallback(async (userId: string, month: string) => {
+    if (!userId) { setAdminShifts([]); return }
+    const [year, mon] = month.split('-').map(Number)
+    const start = `${year}-${String(mon).padStart(2, '0')}-01`
+    const end = `${year}-${String(mon).padStart(2, '0')}-${new Date(year, mon, 0).getDate()}`
+    const { data } = await supabase
+      .from('shifts').select('*').eq('user_id', userId).gte('date', start).lte('date', end)
+    setAdminShifts((data as Shift[]) ?? [])
+  }, [])
   const [invRoles, setInvRoles] = useState<Record<string, string>>({})
   const [manual, setManual] = useState({ userId: '', type: 'clock_in', datetime: '' })
   const [manualMsg, setManualMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
@@ -337,6 +350,10 @@ export default function AdminPage() {
     init()
   }, [router, fetchData, fetchMessages, fetchStaff, fetchSettings])
 
+  useEffect(() => {
+    if (shiftStaffId) fetchAdminShifts(shiftStaffId, selectedMonth)
+  }, [shiftStaffId, selectedMonth, fetchAdminShifts])
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push('/')
@@ -394,6 +411,7 @@ export default function AdminPage() {
         <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--gray-light)' }}>
           {([
             ['attendance', '勤怠'],
+            ['shift', 'シフト'],
             ['staff', 'スタッフ管理'],
             ['messages', '連絡'],
           ] as const).map(([key, label]) => {
@@ -448,6 +466,40 @@ export default function AdminPage() {
               ))}
             </select>
           </div>
+        </div>
+        )}
+
+        {/* シフト */}
+        {tab === 'shift' && (
+        <div className="card p-5">
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-center mb-4">
+            <div className="text-xs tracking-[0.2em] flex-1" style={{ color: 'var(--gray)' }}>
+              SHIFT — シフト表
+            </div>
+            <select
+              value={shiftStaffId}
+              onChange={e => setShiftStaffId(e.target.value)}
+              className="px-3 py-2 rounded-lg text-sm border focus:outline-none"
+              style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
+            >
+              <option value="">スタッフを選択</option>
+              {staffList.map(s => <option key={s.id} value={s.id}>{staffLabel(s)}</option>)}
+            </select>
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={e => setSelectedMonth(e.target.value)}
+              className="px-3 py-2 rounded-lg text-sm border focus:outline-none"
+              style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
+            />
+          </div>
+          {!shiftStaffId ? (
+            <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>スタッフを選ぶと、その人のシフトが表示されます</p>
+          ) : adminShifts.length === 0 ? (
+            <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>この月のシフトはありません</p>
+          ) : (
+            <ShiftCalendar year={Number(selectedMonth.split('-')[0])} month={Number(selectedMonth.split('-')[1])} shifts={adminShifts} />
+          )}
         </div>
         )}
 

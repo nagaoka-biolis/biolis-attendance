@@ -43,3 +43,14 @@ export type Message = {
   created_at: string
   resolved: boolean
 }
+
+export type Shift = {
+  id: string
+  user_id: string
+  date: string            // YYYY-MM-DD
+  start_time: string | null  // "10:00"
+  end_time: string | null    // "19:00"
+  kind: 'work' | 'off' | 'paid'  // 出勤 / 休み / 有給
+  status: string          // 確定 / 申請中 など
+  note: string | null
+}

@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase, Profile, Attendance, Message } from '@/lib/supabase'
+import { supabase, Profile, Attendance, Message, Shift } from '@/lib/supabase'
+import ShiftCalendar from '@/components/ShiftCalendar'
 
 // クリニックの座標（東京都中央区八重洲1丁目3-18 VORT東京八重洲maxim）
 const CLINIC_LAT = 35.6812
@@ -45,6 +46,24 @@ export default function DashboardPage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   })
   const [history, setHistory] = useState<{ date: string; clockIn: string | null; clockOut: string | null; breakMin: number; workMin: number }[]>([])
+  const [shiftMonth, setShiftMonth] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  })
+  const [shifts, setShifts] = useState<Shift[]>([])
+
+  const fetchShifts = useCallback(async (userId: string, month: string) => {
+    const [year, mon] = month.split('-').map(Number)
+    const start = `${year}-${String(mon).padStart(2, '0')}-01`
+    const end = `${year}-${String(mon).padStart(2, '0')}-${new Date(year, mon, 0).getDate()}`
+    const { data } = await supabase
+      .from('shifts')
+      .select('*')
+      .eq('user_id', userId)
+      .gte('date', start)
+      .lte('date', end)
+    if (data) setShifts(data as Shift[])
+  }, [])
 
   // 時計
   useEffect(() => {
@@ -113,6 +132,10 @@ export default function DashboardPage() {
   useEffect(() => {
     if (profile) fetchHistory(profile.id, historyMonth)
   }, [profile, historyMonth, fetchHistory])
+
+  useEffect(() => {
+    if (profile) fetchShifts(profile.id, shiftMonth)
+  }, [profile, shiftMonth, fetchShifts])
 
   useEffect(() => {
     const init = async () => {
@@ -393,6 +416,27 @@ export default function DashboardPage() {
                 ))}
               </div>
             </>
+          )}
+        </div>
+
+        {/* シフト */}
+        <div className="card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-xs tracking-[0.2em]" style={{ color: 'var(--gray)' }}>
+              MY SHIFT — シフト
+            </div>
+            <input
+              type="month"
+              value={shiftMonth}
+              onChange={e => setShiftMonth(e.target.value)}
+              className="px-2 py-1 rounded-lg text-xs border focus:outline-none"
+              style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
+            />
+          </div>
+          {shifts.length === 0 ? (
+            <p className="text-sm text-center py-4" style={{ color: 'var(--gray)' }}>この月のシフトはまだありません</p>
+          ) : (
+            <ShiftCalendar year={Number(shiftMonth.split('-')[0])} month={Number(shiftMonth.split('-')[1])} shifts={shifts} />
           )}
         </div>
 
