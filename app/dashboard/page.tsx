@@ -52,7 +52,7 @@ export default function DashboardPage() {
   })
   const [shifts, setShifts] = useState<Shift[]>([])
 
-  const fetchShifts = useCallback(async (userId: string, month: string) => {
+  const fetchShifts = useCallback(async (userId: string, month: string): Promise<Shift[]> => {
     const [year, mon] = month.split('-').map(Number)
     const start = `${year}-${String(mon).padStart(2, '0')}-01`
     const end = `${year}-${String(mon).padStart(2, '0')}-${new Date(year, mon, 0).getDate()}`
@@ -62,7 +62,7 @@ export default function DashboardPage() {
       .eq('user_id', userId)
       .gte('date', start)
       .lte('date', end)
-    if (data) setShifts(data as Shift[])
+    return (data as Shift[]) ?? []
   }, [])
 
   // 時計
@@ -134,7 +134,10 @@ export default function DashboardPage() {
   }, [profile, historyMonth, fetchHistory])
 
   useEffect(() => {
-    if (profile) fetchShifts(profile.id, shiftMonth)
+    if (!profile) return
+    let active = true
+    fetchShifts(profile.id, shiftMonth).then(rows => { if (active) setShifts(rows) })
+    return () => { active = false }
   }, [profile, shiftMonth, fetchShifts])
 
   useEffect(() => {

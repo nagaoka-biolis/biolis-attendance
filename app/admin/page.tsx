@@ -50,16 +50,6 @@ export default function AdminPage() {
   const [staffList, setStaffList] = useState<Profile[]>([])
   const [shiftStaffId, setShiftStaffId] = useState('')
   const [adminShifts, setAdminShifts] = useState<Shift[]>([])
-
-  const fetchAdminShifts = useCallback(async (userId: string, month: string) => {
-    if (!userId) { setAdminShifts([]); return }
-    const [year, mon] = month.split('-').map(Number)
-    const start = `${year}-${String(mon).padStart(2, '0')}-01`
-    const end = `${year}-${String(mon).padStart(2, '0')}-${new Date(year, mon, 0).getDate()}`
-    const { data } = await supabase
-      .from('shifts').select('*').eq('user_id', userId).gte('date', start).lte('date', end)
-    setAdminShifts((data as Shift[]) ?? [])
-  }, [])
   const [invRoles, setInvRoles] = useState<Record<string, string>>({})
   const [manual, setManual] = useState({ userId: '', type: 'clock_in', datetime: '' })
   const [manualMsg, setManualMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
@@ -351,8 +341,19 @@ export default function AdminPage() {
   }, [router, fetchData, fetchMessages, fetchStaff, fetchSettings])
 
   useEffect(() => {
-    if (shiftStaffId) fetchAdminShifts(shiftStaffId, selectedMonth)
-  }, [shiftStaffId, selectedMonth, fetchAdminShifts])
+    if (!shiftStaffId) { setAdminShifts([]); return }
+    let active = true
+    const run = async () => {
+      const [year, mon] = selectedMonth.split('-').map(Number)
+      const start = `${year}-${String(mon).padStart(2, '0')}-01`
+      const end = `${year}-${String(mon).padStart(2, '0')}-${new Date(year, mon, 0).getDate()}`
+      const { data } = await supabase
+        .from('shifts').select('*').eq('user_id', shiftStaffId).gte('date', start).lte('date', end)
+      if (active) setAdminShifts((data as Shift[]) ?? [])
+    }
+    run()
+    return () => { active = false }
+  }, [shiftStaffId, selectedMonth])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
