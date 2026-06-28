@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase, Profile, Attendance, Message, Shift } from '@/lib/supabase'
-import ShiftCalendar from '@/components/ShiftCalendar'
+import ShiftCalendar, { shiftTimeLabel } from '@/components/ShiftCalendar'
 
 type MessageWithProfile = Message & { profiles: Profile | null }
 
@@ -50,6 +50,55 @@ export default function AdminPage() {
   const [staffList, setStaffList] = useState<Profile[]>([])
   const [shiftStaffId, setShiftStaffId] = useState('')
   const [adminShifts, setAdminShifts] = useState<Shift[]>([])
+  const [editShiftId, setEditShiftId] = useState<string | null>(null)
+  const [editShift, setEditShift] = useState<{ kind: string; start: string; end: string; note: string }>({ kind: 'work', start: '', end: '', note: '' })
+  const [newShift, setNewShift] = useState<{ day: string; kind: string; start: string; end: string; note: string }>({ day: '', kind: 'work', start: '', end: '', note: '' })
+
+  const reloadShifts = async () => {
+    if (!shiftStaffId) return
+    const [year, mon] = selectedMonth.split('-').map(Number)
+    const start = `${year}-${String(mon).padStart(2, '0')}-01`
+    const end = `${year}-${String(mon).padStart(2, '0')}-${new Date(year, mon, 0).getDate()}`
+    const { data } = await supabase.from('shifts').select('*').eq('user_id', shiftStaffId).gte('date', start).lte('date', end)
+    setAdminShifts((data as Shift[]) ?? [])
+  }
+
+  const saveShiftEdit = async (s: Shift) => {
+    const isOff = editShift.kind === 'off'
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from('shifts') as any).update({
+      kind: editShift.kind,
+      start_time: isOff ? null : (editShift.start || null),
+      end_time: isOff ? null : (editShift.end || null),
+      note: editShift.note || null,
+    }).eq('id', s.id)
+    setEditShiftId(null)
+    await reloadShifts()
+  }
+
+  const deleteShift = async (id: string) => {
+    if (!window.confirm('このシフトを削除しますか？')) return
+    await supabase.from('shifts').delete().eq('id', id)
+    await reloadShifts()
+  }
+
+  const addShift = async () => {
+    if (!shiftStaffId || !newShift.day) { alert('日付を選んでください'); return }
+    const isOff = newShift.kind === 'off'
+    const date = `${selectedMonth}-${String(newShift.day).padStart(2, '0')}`
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from('shifts') as any).upsert({
+      user_id: shiftStaffId, date,
+      kind: newShift.kind,
+      start_time: isOff ? null : (newShift.start || null),
+      end_time: isOff ? null : (newShift.end || null),
+      note: newShift.note || null,
+      status: '確定',
+    }, { onConflict: 'user_id,date' })
+    if (error) { alert('追加に失敗しました: ' + error.message); return }
+    setNewShift({ day: '', kind: 'work', start: '', end: '', note: '' })
+    await reloadShifts()
+  }
   const [invRoles, setInvRoles] = useState<Record<string, string>>({})
   const [manual, setManual] = useState({ userId: '', type: 'clock_in', datetime: '' })
   const [manualMsg, setManualMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
@@ -496,10 +545,69 @@ export default function AdminPage() {
           </div>
           {!shiftStaffId ? (
             <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>スタッフを選ぶと、その人のシフトが表示されます</p>
-          ) : adminShifts.length === 0 ? (
-            <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>この月のシフトはありません</p>
           ) : (
-            <ShiftCalendar year={Number(selectedMonth.split('-')[0])} month={Number(selectedMonth.split('-')[1])} shifts={adminShifts} />
+            <>
+              {adminShifts.length > 0 && (
+                <ShiftCalendar year={Number(selectedMonth.split('-')[0])} month={Number(selectedMonth.split('-')[1])} shifts={adminShifts} />
+              )}
+
+              {/* 一覧（編集可） */}
+              <div className="divider-gold mt-5"></div>
+              <div className="text-xs tracking-wider mt-3 mb-2" style={{ color: 'var(--gray)' }}>一覧・編集</div>
+              <div className="space-y-1">
+                {[...adminShifts].sort((a, b) => a.date.localeCompare(b.date)).map(s => (
+                  <div key={s.id} className="text-sm py-2 border-b border-gray-50">
+                    {editShiftId === s.id ? (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs w-16" style={{ color: 'var(--gray)' }}>{new Date(s.date).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })}</span>
+                        <select value={editShift.kind} onChange={e => setEditShift({ ...editShift, kind: e.target.value })}
+                          className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }}>
+                          <option value="work">出勤</option><option value="off">休み</option><option value="paid">有給</option>
+                        </select>
+                        {editShift.kind !== 'off' && (<>
+                          <input type="time" value={editShift.start} onChange={e => setEditShift({ ...editShift, start: e.target.value })} className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }} />
+                          <span className="text-xs">〜</span>
+                          <input type="time" value={editShift.end} onChange={e => setEditShift({ ...editShift, end: e.target.value })} className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }} />
+                        </>)}
+                        <input type="text" value={editShift.note} placeholder="備考" onChange={e => setEditShift({ ...editShift, note: e.target.value })} className="px-2 py-1 rounded border text-xs flex-1 min-w-20" style={{ borderColor: 'var(--gray-light)' }} />
+                        <button onClick={() => saveShiftEdit(s)} className="btn-gold text-xs px-3 py-1 rounded-full">保存</button>
+                        <button onClick={() => setEditShiftId(null)} className="text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600">取消</button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs w-16" style={{ color: 'var(--gray)' }}>{new Date(s.date).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' })}</span>
+                        <span className="flex-1" style={{ color: s.kind === 'off' ? 'var(--gray)' : 'var(--navy)' }}>{shiftTimeLabel(s)}</span>
+                        {s.note && <span className="text-xs" style={{ color: 'var(--gray)' }}>{s.note}</span>}
+                        <button onClick={() => { setEditShiftId(s.id); setEditShift({ kind: s.kind, start: s.start_time ?? '', end: s.end_time ?? '', note: s.note ?? '' }) }}
+                          className="text-xs px-2 py-0.5 rounded-full border hover:bg-white transition" style={{ borderColor: 'var(--gray-light)', color: 'var(--gray)' }}>編集</button>
+                        <button onClick={() => deleteShift(s.id)} className="text-xs px-2 py-0.5 rounded-full border border-red-200 text-red-500 hover:bg-red-50 transition">削除</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* シフトを追加 */}
+              <div className="mt-4 p-3 rounded-lg" style={{ background: 'var(--off-white)' }}>
+                <div className="text-xs mb-2" style={{ color: 'var(--gray)' }}>シフトを追加・上書き（{selectedMonth.replace('-', '年')}月）</div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <select value={newShift.day} onChange={e => setNewShift({ ...newShift, day: e.target.value })} className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }}>
+                    <option value="">日</option>
+                    {Array.from({ length: new Date(Number(selectedMonth.split('-')[0]), Number(selectedMonth.split('-')[1]), 0).getDate() }, (_, i) => i + 1).map(d => <option key={d} value={d}>{d}日</option>)}
+                  </select>
+                  <select value={newShift.kind} onChange={e => setNewShift({ ...newShift, kind: e.target.value })} className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }}>
+                    <option value="work">出勤</option><option value="off">休み</option><option value="paid">有給</option>
+                  </select>
+                  {newShift.kind !== 'off' && (<>
+                    <input type="time" value={newShift.start} onChange={e => setNewShift({ ...newShift, start: e.target.value })} className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }} />
+                    <span className="text-xs">〜</span>
+                    <input type="time" value={newShift.end} onChange={e => setNewShift({ ...newShift, end: e.target.value })} className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }} />
+                  </>)}
+                  <input type="text" value={newShift.note} placeholder="備考" onChange={e => setNewShift({ ...newShift, note: e.target.value })} className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }} />
+                  <button onClick={addShift} className="btn-gold text-xs px-4 py-1.5 rounded-full">追加</button>
+                </div>
+              </div>
+            </>
           )}
         </div>
         )}

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase, Profile, Attendance, Message, Shift } from '@/lib/supabase'
-import ShiftCalendar from '@/components/ShiftCalendar'
+import ShiftCalendar, { shiftTimeLabel } from '@/components/ShiftCalendar'
 
 // クリニックの座標（東京都中央区八重洲1丁目3-18 VORT東京八重洲maxim）
 const CLINIC_LAT = 35.6812
@@ -439,7 +439,22 @@ export default function DashboardPage() {
           {shifts.length === 0 ? (
             <p className="text-sm text-center py-4" style={{ color: 'var(--gray)' }}>この月のシフトはまだありません</p>
           ) : (
-            <ShiftCalendar year={Number(shiftMonth.split('-')[0])} month={Number(shiftMonth.split('-')[1])} shifts={shifts} />
+            <>
+              <ShiftCalendar year={Number(shiftMonth.split('-')[0])} month={Number(shiftMonth.split('-')[1])} shifts={shifts} />
+              <div className="divider-gold mt-5"></div>
+              <div className="text-xs tracking-wider mt-3 mb-2" style={{ color: 'var(--gray)' }}>一覧</div>
+              <div className="space-y-1">
+                {[...shifts].sort((a, b) => a.date.localeCompare(b.date)).map(s => (
+                  <div key={s.id} className="flex items-center justify-between text-sm py-1.5 border-b border-gray-50">
+                    <span className="text-xs w-20" style={{ color: 'var(--gray)' }}>
+                      {new Date(s.date).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' })}
+                    </span>
+                    <span className="flex-1" style={{ color: s.kind === 'off' ? 'var(--gray)' : 'var(--navy)' }}>{shiftTimeLabel(s)}</span>
+                    {s.note && <span className="text-xs" style={{ color: 'var(--gray)' }}>{s.note}</span>}
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
 

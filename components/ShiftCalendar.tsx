@@ -4,11 +4,12 @@ import { Shift } from '@/lib/supabase'
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 
-function timeLabel(s: Shift): string {
+export function shiftTimeLabel(s: Shift): string {
   if (s.kind === 'off') return '休み'
   const t = s.start_time ? (s.end_time ? `${s.start_time}〜${s.end_time}` : `${s.start_time}〜`) : ''
   return s.kind === 'paid' ? `有給 ${t}`.trim() : t
 }
+const timeLabel = shiftTimeLabel
 
 export default function ShiftCalendar({ year, month, shifts }: { year: number; month: number; shifts: Shift[] }) {
   // month: 1-12
