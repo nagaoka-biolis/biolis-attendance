@@ -51,6 +51,64 @@ export default function AdminPage() {
   const [payroll, setPayroll] = useState<any>(null)
   const [payrollLoading, setPayrollLoading] = useState(false)
   const [payrollOpen, setPayrollOpen] = useState<string | null>(null)
+  const [payrollTarget, setPayrollTarget] = useState('summary')  // 'summary' or user_id
+
+  const fmtD = (d: string) => new Date(d).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const summaryRows = (): (string | number)[][] => {
+    const rows: (string | number)[][] = [['先生', '雇用(対象外)', '委託(税込)', '内消費税', '総合計']]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of payroll.results) rows.push([r.name, r.employTotal, r.contractTotal, r.contractTax, r.total])
+    rows.push(['合計', payroll.grand.employ, payroll.grand.contract, payroll.grand.tax, payroll.grand.total])
+    return rows
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const doctorRows = (r: any): (string | number)[][] => {
+    const rows: (string | number)[][] = [[`${r.name} / ${payroll.month} / 稼働${r.daysCount}日${r.contractorName ? ' / 委託先:' + r.contractorName : ''}`], ['日付', '時間', '雇用(対象外)', '委託(税込)', '個別調整']]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const d of r.days) rows.push([fmtD(d.date), d.time, d.employ, d.contract, d.adj ? '有' : ''])
+    rows.push(['雇用 小計', '', r.employTotal, '', ''])
+    rows.push(['委託 小計(税込)', '', '', r.contractTotal, ''])
+    rows.push(['内消費税(委託)', '', '', r.contractTax, ''])
+    if (r.allowance > 0) rows.push(['うち手当', '', '', r.allowance, ''])
+    rows.push(['総合計', '', '', '', r.total])
+    if (r.note) rows.push([`別途・注意: ${r.note}`])
+    return rows
+  }
+  const exportPayrollCSV = () => {
+    if (!payroll?.results?.length) return
+    if (payrollTarget === 'summary') downloadCSV(`報酬_サマリー_${selectedMonth}.csv`, summaryRows())
+    else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = payroll.results.find((x: any) => x.user_id === payrollTarget)
+      if (r) downloadCSV(`報酬_${r.name}_${selectedMonth}.csv`, doctorRows(r))
+    }
+  }
+  const printPayrollPDF = () => {
+    if (!payroll?.results?.length) return
+    const note = '<p style="color:#9A7B1F;font-size:11px;background:#FFF8E7;padding:8px 10px;border-radius:6px">※これは「見込み・試算」です。税務・課税区分の最終判断は顧問税理士の確認が前提です。</p>'
+    const th = 'style="text-align:right;padding:6px 8px;border-bottom:1px solid #ddd;font-size:11px;color:#888"'
+    const td = 'style="text-align:right;padding:6px 8px;border-bottom:1px solid #eee"'
+    const tdl = 'style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee"'
+    let html = ''
+    if (payrollTarget === 'summary') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const body = payroll.results.map((r: any) => `<tr><td ${tdl}>${r.name}</td><td ${td}>${r.employTotal.toLocaleString()}</td><td ${td}>${r.contractTotal.toLocaleString()}</td><td ${td}>${r.contractTax.toLocaleString()}</td><td ${td}><b>${r.total.toLocaleString()}</b></td></tr>`).join('')
+      html = `<h2>BiOLiS 報酬サマリー（${payroll.month}）</h2>${note}<table style="border-collapse:collapse;width:100%"><tr><th ${th.replace('right', 'left')}>先生</th><th ${th}>雇用(対象外)</th><th ${th}>委託(税込)</th><th ${th}>内消費税</th><th ${th}>総合計</th></tr>${body}<tr><td ${tdl}><b>合計</b></td><td ${td}><b>${payroll.grand.employ.toLocaleString()}</b></td><td ${td}><b>${payroll.grand.contract.toLocaleString()}</b></td><td ${td}>${payroll.grand.tax.toLocaleString()}</td><td ${td}><b>${payroll.grand.total.toLocaleString()}</b></td></tr></table>`
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = payroll.results.find((x: any) => x.user_id === payrollTarget)
+      if (!r) return
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const body = r.days.map((d: any) => `<tr><td ${tdl}>${fmtD(d.date)}</td><td ${tdl}>${d.time || ''}</td><td ${td}>${d.employ ? d.employ.toLocaleString() : ''}</td><td ${td}>${d.contract ? d.contract.toLocaleString() : ''}</td></tr>`).join('')
+      html = `<h2>BiOLiS 報酬明細 — ${r.name}（${payroll.month}）</h2>${note}<p style="font-size:12px;color:#555">稼働${r.daysCount}日${r.contractorName ? ' ／ 委託先：' + r.contractorName : ''}</p><table style="border-collapse:collapse;width:100%"><tr><th ${th.replace('right', 'left')}>日付</th><th ${th.replace('right', 'left')}>時間</th><th ${th}>雇用(対象外)</th><th ${th}>委託(税込)</th></tr>${body}<tr><td ${tdl} colspan="2"><b>小計</b></td><td ${td}><b>${r.employTotal.toLocaleString()}</b></td><td ${td}><b>${r.contractTotal.toLocaleString()}</b></td></tr><tr><td ${tdl} colspan="3">内消費税(委託)</td><td ${td}>${r.contractTax.toLocaleString()}</td></tr><tr><td ${tdl} colspan="3"><b>総合計</b></td><td ${td}><b>${r.total.toLocaleString()}</b></td></tr></table>${r.note ? `<p style="color:#c00;font-size:11px">別途・注意：${r.note}</p>` : ''}`
+    }
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(`<html><head><meta charset="utf-8"><title>報酬_${selectedMonth}</title><style>body{font-family:"Hiragino Sans",sans-serif;padding:24px;color:#1A1A2E}h2{font-size:18px}</style></head><body>${html}</body></html>`)
+    w.document.close(); w.focus()
+    setTimeout(() => w.print(), 300)
+  }
 
   const fetchPayroll = useCallback(async (month: string) => {
     setPayrollLoading(true)
@@ -574,6 +632,19 @@ export default function AdminPage() {
           <div className="text-xs rounded-lg px-3 py-2 mb-4" style={{ background: '#FFF8E7', color: '#9A7B1F' }}>
             ※これは「見込み・試算」です。税務・課税区分の最終判断は顧問税理士の確認が前提です。委託分は税込・内消費税10%を割り戻して表示しています。
           </div>
+          {payroll?.results?.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap mb-4">
+              <span className="text-xs" style={{ color: 'var(--gray)' }}>出力対象：</span>
+              <select value={payrollTarget} onChange={e => setPayrollTarget(e.target.value)}
+                className="px-3 py-2 rounded-lg text-sm border focus:outline-none" style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}>
+                <option value="summary">全体（サマリー）</option>
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                {payroll.results.map((r: any) => <option key={r.user_id} value={r.user_id}>{r.name}（明細）</option>)}
+              </select>
+              <button onClick={exportPayrollCSV} className="btn-outline text-sm px-4 py-2 rounded-lg">CSVダウンロード</button>
+              <button onClick={printPayrollPDF} className="btn-gold text-sm px-4 py-2 rounded-lg">PDF（印刷）</button>
+            </div>
+          )}
           {payrollLoading ? (
             <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>計算中...</p>
           ) : payroll?.error ? (
