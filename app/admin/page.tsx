@@ -67,10 +67,10 @@ export default function AdminPage() {
     const rows: (string | number)[][] = [[`${r.name} / ${payroll.month} / 稼働${r.daysCount}日${r.contractorName ? ' / 委託先:' + r.contractorName : ''}`], ['日付', '時間', '雇用(対象外)', '委託(税込)', '個別調整']]
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const d of r.days) rows.push([fmtD(d.date), d.time, d.employ, d.contract, d.adj ? '有' : ''])
+    if (r.allowance > 0) rows.push(['管理医師手当(委託)', '', '', r.allowance, ''])
     rows.push(['雇用 小計', '', r.employTotal, '', ''])
     rows.push(['委託 小計(税込)', '', '', r.contractTotal, ''])
     rows.push(['内消費税(委託)', '', '', r.contractTax, ''])
-    if (r.allowance > 0) rows.push(['うち手当', '', '', r.allowance, ''])
     rows.push(['総合計', '', '', '', r.total])
     if (r.note) rows.push([`別途・注意: ${r.note}`])
     return rows
@@ -101,7 +101,8 @@ export default function AdminPage() {
       if (!r) return
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = r.days.map((d: any) => `<tr><td ${tdl}>${fmtD(d.date)}</td><td ${tdl}>${d.time || ''}</td><td ${td}>${d.employ ? d.employ.toLocaleString() : ''}</td><td ${td}>${d.contract ? d.contract.toLocaleString() : ''}</td></tr>`).join('')
-      html = `<h2>BiOLiS 報酬明細 — ${r.name}（${payroll.month}）</h2>${note}<p style="font-size:12px;color:#555">稼働${r.daysCount}日${r.contractorName ? ' ／ 委託先：' + r.contractorName : ''}</p><table style="border-collapse:collapse;width:100%"><tr><th ${th.replace('right', 'left')}>日付</th><th ${th.replace('right', 'left')}>時間</th><th ${th}>雇用(対象外)</th><th ${th}>委託(税込)</th></tr>${body}<tr><td ${tdl} colspan="2"><b>小計</b></td><td ${td}><b>${r.employTotal.toLocaleString()}</b></td><td ${td}><b>${r.contractTotal.toLocaleString()}</b></td></tr><tr><td ${tdl} colspan="3">内消費税(委託)</td><td ${td}>${r.contractTax.toLocaleString()}</td></tr><tr><td ${tdl} colspan="3"><b>総合計</b></td><td ${td}><b>${r.total.toLocaleString()}</b></td></tr></table>${r.note ? `<p style="color:#c00;font-size:11px">別途・注意：${r.note}</p>` : ''}`
+      const allowRow = r.allowance > 0 ? `<tr><td ${tdl} colspan="2">管理医師手当(委託)</td><td ${td}></td><td ${td}>${r.allowance.toLocaleString()}</td></tr>` : ''
+      html = `<h2>BiOLiS 報酬明細 — ${r.name}（${payroll.month}）</h2>${note}<p style="font-size:12px;color:#555">稼働${r.daysCount}日${r.contractorName ? ' ／ 委託先：' + r.contractorName : ''}</p><table style="border-collapse:collapse;width:100%"><tr><th ${th.replace('right', 'left')}>日付</th><th ${th.replace('right', 'left')}>時間</th><th ${th}>雇用(対象外)</th><th ${th}>委託(税込)</th></tr>${body}${allowRow}<tr><td ${tdl} colspan="2"><b>小計</b></td><td ${td}><b>${r.employTotal.toLocaleString()}</b></td><td ${td}><b>${r.contractTotal.toLocaleString()}</b></td></tr><tr><td ${tdl} colspan="3">内消費税(委託)</td><td ${td}>${r.contractTax.toLocaleString()}</td></tr><tr><td ${tdl} colspan="3"><b>総合計</b></td><td ${td}><b>${r.total.toLocaleString()}</b></td></tr></table>${r.note ? `<p style="color:#c00;font-size:11px">別途・注意：${r.note}</p>` : ''}`
     }
     const w = window.open('', '_blank')
     if (!w) return
@@ -694,6 +695,12 @@ export default function AdminPage() {
                                   {d.adj && <span style={{ color: '#B8932F' }}>（個別調整）</span>}
                                 </div>
                               ))}
+                              {r.allowance > 0 && (
+                                <div className="flex items-center gap-3 text-xs">
+                                  <span className="w-16" style={{ color: 'var(--gray)' }}>手当</span>
+                                  <span style={{ color: 'var(--navy)' }}>委託 {r.allowance.toLocaleString()}（管理医師手当）</span>
+                                </div>
+                              )}
                             </div>
                             {r.note && <div className="text-xs mt-2" style={{ color: '#EF4444' }}>別途・注意：{r.note}</div>}
                           </td></tr>
