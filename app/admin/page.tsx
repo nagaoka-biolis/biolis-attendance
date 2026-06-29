@@ -46,7 +46,23 @@ export default function AdminPage() {
   const [newStaff, setNewStaff] = useState({ name: '', email: '', password: '', role: 'staff' })
   const [staffSaving, setStaffSaving] = useState(false)
   const [staffMsg, setStaffMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
-  const [tab, setTab] = useState<'attendance' | 'shift' | 'staff' | 'messages'>('attendance')
+  const [tab, setTab] = useState<'attendance' | 'shift' | 'staff' | 'messages' | 'payroll'>('attendance')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [payroll, setPayroll] = useState<any>(null)
+  const [payrollLoading, setPayrollLoading] = useState(false)
+  const [payrollOpen, setPayrollOpen] = useState<string | null>(null)
+
+  const fetchPayroll = useCallback(async (month: string) => {
+    setPayrollLoading(true)
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/payroll', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+      body: JSON.stringify({ month }),
+    })
+    const r = await res.json().catch(() => ({}))
+    setPayroll(res.ok ? r : { error: r.error })
+    setPayrollLoading(false)
+  }, [])
   const [staffList, setStaffList] = useState<Profile[]>([])
   const [shiftStaffId, setShiftStaffId] = useState('')
   const [adminShifts, setAdminShifts] = useState<Shift[]>([])
@@ -427,6 +443,10 @@ export default function AdminPage() {
     return () => { active = false }
   }, [shiftStaffId, selectedMonth])
 
+  useEffect(() => {
+    if (tab === 'payroll') fetchPayroll(selectedMonth)
+  }, [tab, selectedMonth, fetchPayroll])
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push('/')
@@ -485,6 +505,7 @@ export default function AdminPage() {
           {([
             ['attendance', '勤怠'],
             ['shift', 'シフト'],
+            ['payroll', '報酬'],
             ['staff', 'スタッフ管理'],
             ['messages', '連絡'],
           ] as const).map(([key, label]) => {
@@ -539,6 +560,88 @@ export default function AdminPage() {
               ))}
             </select>
           </div>
+        </div>
+        )}
+
+        {/* 報酬（管理者のみ・サーバー計算） */}
+        {tab === 'payroll' && (
+        <div className="card p-5">
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-center mb-3">
+            <div className="text-xs tracking-[0.2em] flex-1" style={{ color: 'var(--gray)' }}>PAYROLL — 報酬（医師報酬の試算）</div>
+            <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
+              className="px-3 py-2 rounded-lg text-sm border focus:outline-none" style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }} />
+          </div>
+          <div className="text-xs rounded-lg px-3 py-2 mb-4" style={{ background: '#FFF8E7', color: '#9A7B1F' }}>
+            ※これは「見込み・試算」です。税務・課税区分の最終判断は顧問税理士の確認が前提です。委託分は税込・内消費税10%を割り戻して表示しています。
+          </div>
+          {payrollLoading ? (
+            <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>計算中...</p>
+          ) : payroll?.error ? (
+            <p className="text-sm text-center py-6 text-red-500">{payroll.error}</p>
+          ) : !payroll?.results?.length ? (
+            <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>この月の対象データがありません</p>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs tracking-wider" style={{ color: 'var(--gray)' }}>
+                      <th className="text-left pb-2 font-normal">先生</th>
+                      <th className="text-right pb-2 font-normal">雇用(対象外)</th>
+                      <th className="text-right pb-2 font-normal">委託(税込)</th>
+                      <th className="text-right pb-2 font-normal">内消費税</th>
+                      <th className="text-right pb-2 font-normal">総合計</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                    {payroll.results.map((r: any) => (
+                      <Fragment key={r.user_id}>
+                        <tr onClick={() => setPayrollOpen(payrollOpen === r.user_id ? null : r.user_id)} className="border-t border-gray-50 cursor-pointer hover:bg-amber-50/40">
+                          <td className="py-2.5 font-medium" style={{ color: 'var(--navy)' }}>
+                            <span className="inline-block w-3" style={{ color: 'var(--gold)' }}>{payrollOpen === r.user_id ? '▾' : '▸'}</span>{r.name}
+                          </td>
+                          <td className="py-2.5 text-right" style={{ color: 'var(--navy)' }}>{r.employTotal.toLocaleString()}</td>
+                          <td className="py-2.5 text-right" style={{ color: 'var(--navy)' }}>{r.contractTotal.toLocaleString()}</td>
+                          <td className="py-2.5 text-right text-xs" style={{ color: 'var(--gray)' }}>{r.contractTax.toLocaleString()}</td>
+                          <td className="py-2.5 text-right font-medium" style={{ color: 'var(--gold)' }}>{r.total.toLocaleString()}</td>
+                        </tr>
+                        {payrollOpen === r.user_id && (
+                          <tr><td colSpan={5} className="px-4 py-3 bg-amber-50/40">
+                            <div className="text-xs mb-2" style={{ color: 'var(--gray)' }}>
+                              根拠（{r.name} ／ {payroll.month} ／ 稼働{r.daysCount}日{r.allowance > 0 ? ` ／ 手当 ${r.allowance.toLocaleString()}円` : ''}）
+                              {r.contractorName && <span> ／ 委託先：{r.contractorName}</span>}
+                            </div>
+                            <div className="space-y-1">
+                              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                              {r.days.map((d: any, i: number) => (
+                                <div key={i} className="flex items-center gap-3 text-xs">
+                                  <span className="w-16" style={{ color: 'var(--gray)' }}>{new Date(d.date).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' })}</span>
+                                  {d.time && <span style={{ color: 'var(--gray)' }}>{d.time}</span>}
+                                  {d.employ > 0 && <span style={{ color: 'var(--navy)' }}>雇用 {d.employ.toLocaleString()}</span>}
+                                  {d.contract > 0 && <span style={{ color: 'var(--navy)' }}>委託 {d.contract.toLocaleString()}</span>}
+                                  {d.adj && <span style={{ color: '#B8932F' }}>（個別調整）</span>}
+                                </div>
+                              ))}
+                            </div>
+                            {r.note && <div className="text-xs mt-2" style={{ color: '#EF4444' }}>別途・注意：{r.note}</div>}
+                          </td></tr>
+                        )}
+                      </Fragment>
+                    ))}
+                    <tr className="border-t-2" style={{ borderColor: 'var(--gold)' }}>
+                      <td className="py-2.5 font-bold" style={{ color: 'var(--navy)' }}>合計</td>
+                      <td className="py-2.5 text-right font-medium" style={{ color: 'var(--navy)' }}>{payroll.grand.employ.toLocaleString()}</td>
+                      <td className="py-2.5 text-right font-medium" style={{ color: 'var(--navy)' }}>{payroll.grand.contract.toLocaleString()}</td>
+                      <td className="py-2.5 text-right text-xs" style={{ color: 'var(--gray)' }}>{payroll.grand.tax.toLocaleString()}</td>
+                      <td className="py-2.5 text-right font-bold" style={{ color: 'var(--gold)' }}>{payroll.grand.total.toLocaleString()}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="text-xs mt-3" style={{ color: 'var(--gray)' }}>各行をタップすると、日ごとの根拠が開きます。鑓水先生の夜間歩合・今井先生の手術10%などは「別途」（データ待ち）です。</div>
+            </>
+          )}
         </div>
         )}
 
