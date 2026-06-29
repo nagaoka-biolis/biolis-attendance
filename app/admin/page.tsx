@@ -50,7 +50,8 @@ export default function AdminPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [payroll, setPayroll] = useState<any>(null)
   const [payrollLoading, setPayrollLoading] = useState(false)
-  const [payrollOpen, setPayrollOpen] = useState<string | null>(null)
+  const [payrollOpen, setPayrollOpen] = useState<Set<string>>(new Set())
+  const togglePayroll = (id: string) => setPayrollOpen(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const [payrollTarget, setPayrollTarget] = useState('summary')  // 'summary' or user_id
 
   const fmtD = (d: string) => new Date(d).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' })
@@ -669,16 +670,16 @@ export default function AdminPage() {
                     {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                     {payroll.results.map((r: any) => (
                       <Fragment key={r.user_id}>
-                        <tr onClick={() => setPayrollOpen(payrollOpen === r.user_id ? null : r.user_id)} className="border-t border-gray-50 cursor-pointer hover:bg-amber-50/40">
+                        <tr onClick={() => togglePayroll(r.user_id)} className="border-t border-gray-50 cursor-pointer hover:bg-amber-50/40">
                           <td className="py-2.5 font-medium" style={{ color: 'var(--navy)' }}>
-                            <span className="inline-block w-3" style={{ color: 'var(--gold)' }}>{payrollOpen === r.user_id ? '▾' : '▸'}</span>{r.name}
+                            <span className="inline-block w-3" style={{ color: 'var(--gold)' }}>{payrollOpen.has(r.user_id) ? '▾' : '▸'}</span>{r.name}
                           </td>
                           <td className="py-2.5 text-right" style={{ color: 'var(--navy)' }}>{r.employTotal.toLocaleString()}</td>
                           <td className="py-2.5 text-right" style={{ color: 'var(--navy)' }}>{r.contractTotal.toLocaleString()}</td>
                           <td className="py-2.5 text-right text-xs" style={{ color: 'var(--gray)' }}>{r.contractTax.toLocaleString()}</td>
                           <td className="py-2.5 text-right font-medium" style={{ color: 'var(--gold)' }}>{r.total.toLocaleString()}</td>
                         </tr>
-                        {payrollOpen === r.user_id && (
+                        {payrollOpen.has(r.user_id) && (
                           <tr><td colSpan={5} className="px-4 py-3 bg-amber-50/40">
                             <div className="text-xs mb-2" style={{ color: 'var(--gray)' }}>
                               根拠（{r.name} ／ {payroll.month} ／ 稼働{r.daysCount}日{r.allowance > 0 ? ` ／ 手当 ${r.allowance.toLocaleString()}円` : ''}）
