@@ -50,6 +50,29 @@ export default function AdminPage() {
   const [staffList, setStaffList] = useState<Profile[]>([])
   const [shiftStaffId, setShiftStaffId] = useState('')
   const [adminShifts, setAdminShifts] = useState<Shift[]>([])
+  const [importing, setImporting] = useState(false)
+  const [importMsg, setImportMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+
+  const handleImportShifts = async () => {
+    if (!window.confirm(`${selectedMonth.replace('-', '年')}月のシフトを、スプレッドシートの内容で取り込みます。\n（アプリ側のその月のシフトは上書きされます）\n実行しますか？`)) return
+    setImporting(true); setImportMsg(null)
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/import-shifts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+      body: JSON.stringify({ month: selectedMonth }),
+    })
+    const r = await res.json().catch(() => ({}))
+    if (res.ok) {
+      const skip = r.skipped?.length ? `／未登録でスキップ: ${r.skipped.join('、')}` : ''
+      setImportMsg({ text: `取り込み完了：${r.updated?.length ?? 0}名・${r.count}件を反映${skip}`, type: 'success' })
+      if (shiftStaffId) await reloadShifts()
+    } else {
+      setImportMsg({ text: r.error ?? '取り込みに失敗しました', type: 'error' })
+    }
+    setImporting(false)
+  }
+
   const [editShiftId, setEditShiftId] = useState<string | null>(null)
   const [editShift, setEditShift] = useState<{ kind: string; start: string; end: string; note: string }>({ kind: 'work', start: '', end: '', note: '' })
   const [newShift, setNewShift] = useState<{ day: string; kind: string; start: string; end: string; note: string }>({ day: '', kind: 'work', start: '', end: '', note: '' })
@@ -542,7 +565,19 @@ export default function AdminPage() {
               className="px-3 py-2 rounded-lg text-sm border focus:outline-none"
               style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }}
             />
+            <button
+              onClick={handleImportShifts}
+              disabled={importing}
+              className="btn-gold text-sm px-4 py-2 rounded-lg whitespace-nowrap"
+            >
+              {importing ? '取り込み中...' : 'スプレッドシートから取り込み'}
+            </button>
           </div>
+          {importMsg && (
+            <div className={`mb-4 text-sm rounded-lg px-3 py-2 ${importMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+              {importMsg.text}
+            </div>
+          )}
           {!shiftStaffId ? (
             <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>スタッフを選ぶと、その人のシフトが表示されます</p>
           ) : (
