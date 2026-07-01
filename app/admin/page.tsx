@@ -126,17 +126,36 @@ export default function AdminPage() {
   const [staffList, setStaffList] = useState<Profile[]>([])
   const [shiftStaffId, setShiftStaffId] = useState('')
   const [adminShifts, setAdminShifts] = useState<Shift[]>([])
+  const [acceptMonth, setAcceptMonth] = useState('')
   const [deadlineInput, setDeadlineInput] = useState('')
   const [deadlineMsg, setDeadlineMsg] = useState('')
+  const [acceptSaving, setAcceptSaving] = useState(false)
 
-  const loadDeadline = useCallback(async (month: string) => {
-    const { data } = await supabase.from('shift_deadlines').select('deadline').eq('month', month).maybeSingle()
-    setDeadlineInput((data as { deadline?: string } | null)?.deadline ?? '')
+  const loadAcceptance = useCallback(async () => {
+    const { data: s } = await supabase.from('app_settings').select('value').eq('key', 'shift_request_month').maybeSingle()
+    const m = (s as { value?: string } | null)?.value ?? ''
+    setAcceptMonth(m)
+    if (m) {
+      const { data } = await supabase.from('shift_deadlines').select('deadline').eq('month', m).maybeSingle()
+      setDeadlineInput((data as { deadline?: string } | null)?.deadline ?? '')
+    }
   }, [])
-  const saveDeadline = async () => {
+  const saveAcceptance = async () => {
+    if (!acceptMonth) { setDeadlineMsg('受付月を選んでください'); return }
+    setAcceptSaving(true); setDeadlineMsg('')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase.from('shift_deadlines') as any).upsert({ month: selectedMonth, deadline: deadlineInput || null })
-    setDeadlineMsg(error ? '保存に失敗しました' : `締切を ${deadlineInput || '未設定'} に設定しました`)
+    await (supabase.from('app_settings') as any).upsert({ key: 'shift_request_month', value: acceptMonth })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from('shift_deadlines') as any).upsert({ month: acceptMonth, deadline: deadlineInput || null })
+    // 希望タブを生成（スタッフ一覧つき）
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/sync-shift-requests', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+      body: JSON.stringify({ month: acceptMonth }),
+    })
+    const r = await res.json().catch(() => ({}))
+    setDeadlineMsg(res.ok ? `受付月=${acceptMonth.replace('-', '年')}月・締切${deadlineInput || '未設定'}で設定。希望タブ「${r.tab}」を用意しました` : `設定は保存しましたがタブ生成に失敗：${r.error ?? ''}`)
+    setAcceptSaving(false)
   }
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
@@ -520,8 +539,8 @@ export default function AdminPage() {
   }, [tab, selectedMonth, fetchPayroll])
 
   useEffect(() => {
-    if (tab === 'shift') loadDeadline(selectedMonth)
-  }, [tab, selectedMonth, loadDeadline])
+    if (tab === 'shift') loadAcceptance()
+  }, [tab, loadAcceptance])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -776,13 +795,18 @@ export default function AdminPage() {
               {importMsg.text}
             </div>
           )}
-          <div className="mb-4 p-3 rounded-lg flex items-center gap-2 flex-wrap" style={{ background: 'var(--off-white)' }}>
-            <span className="text-xs" style={{ color: 'var(--gray)' }}>シフト希望の締切（{selectedMonth.replace('-', '年')}月）：</span>
-            <input type="date" value={deadlineInput} onChange={e => setDeadlineInput(e.target.value)}
-              className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }} />
-            <button onClick={saveDeadline} className="btn-gold text-xs px-4 py-1.5 rounded-full">締切を保存</button>
-            {deadlineMsg && <span className="text-xs" style={{ color: 'var(--gray)' }}>{deadlineMsg}</span>}
-            <span className="text-xs" style={{ color: 'var(--gray)' }}>※この日まで先生は希望を変更できます</span>
+          <div className="mb-4 p-3 rounded-lg" style={{ background: 'var(--off-white)' }}>
+            <div className="text-xs mb-2" style={{ color: 'var(--gray)' }}>シフト希望の受付設定（この月がスタッフの提出対象になります）</div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs" style={{ color: 'var(--gray)' }}>受付月</span>
+              <input type="month" value={acceptMonth} onChange={e => setAcceptMonth(e.target.value)}
+                className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }} />
+              <span className="text-xs" style={{ color: 'var(--gray)' }}>締切</span>
+              <input type="date" value={deadlineInput} onChange={e => setDeadlineInput(e.target.value)}
+                className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }} />
+              <button onClick={saveAcceptance} disabled={acceptSaving} className="btn-gold text-xs px-4 py-1.5 rounded-full">{acceptSaving ? '設定中...' : '受付を設定＆希望タブ生成'}</button>
+            </div>
+            {deadlineMsg && <div className="text-xs mt-2" style={{ color: 'var(--gray)' }}>{deadlineMsg}</div>}
           </div>
           {!shiftStaffId ? (
             <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>スタッフを選ぶと、その人のシフトが表示されます</p>

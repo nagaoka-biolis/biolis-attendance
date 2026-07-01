@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/server-admin'
-import { writeSheet } from '@/lib/google-sheets'
+import { writeShiftGrid } from '@/lib/google-sheets'
 
 export const runtime = 'nodejs'
 
 type Req = { user_id: string; date: string; kind: string; start_time: string | null; end_time: string | null }
+const WK = ['日', '月', '火', '水', '木', '金', '土']
 
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req)
@@ -20,11 +21,11 @@ export async function POST(req: NextRequest) {
   const days = new Date(year, mon, 0).getDate()
   const end = `${year}-${String(mon).padStart(2, '0')}-${String(days).padStart(2, '0')}`
 
-  const { data: profs } = await admin.from('profiles').select('id,name')
-  const name = new Map<string, string>((profs ?? []).map((p: { id: string; name: string }) => [p.id, p.name]))
+  // 全スタッフ（役割staff）を一覧化
+  const { data: profs } = await admin.from('profiles').select('id,name,role,created_at').eq('role', 'staff').order('created_at')
+  const staff = (profs ?? []) as { id: string; name: string }[]
   const { data: reqs } = await admin.from('shift_requests').select('user_id,date,kind,start_time,end_time').gte('date', start).lte('date', end)
 
-  // 先生ごとに希望を集約
   const byUser = new Map<string, Map<number, string>>()
   for (const r of (reqs ?? []) as Req[]) {
     const d = new Date(r.date).getDate()
@@ -34,21 +35,22 @@ export async function POST(req: NextRequest) {
     byUser.get(r.user_id)!.set(d, label)
   }
 
-  // グリッド作成： 先生 / 1..31
-  const header: (string | number)[] = ['先生（希望）', ...Array.from({ length: days }, (_, i) => i + 1)]
-  const rows: (string | number)[][] = [[`${year}年${mon}月 シフト希望（アプリ提出・自動反映）`], header]
-  for (const [uid, dmap] of byUser.entries()) {
-    const row: (string | number)[] = [name.get(uid) ?? '—']
-    for (let d = 1; d <= days; d++) row.push(dmap.get(d) ?? '')
-    rows.push(row)
+  // グリッド: タイトル / 名前+日番号 / 空+曜日 / スタッフ行
+  const dayNums: (string | number)[] = ['名前', ...Array.from({ length: days }, (_, i) => i + 1)]
+  const weekdays: (string | number)[] = ['', ...Array.from({ length: days }, (_, i) => WK[new Date(year, mon - 1, i + 1).getDay()])]
+  const values: (string | number)[][] = [[`${year}年 ${mon}月 シフト希望（アプリ提出・自動反映）`], dayNums, weekdays]
+  for (const s of staff) {
+    const dmap = byUser.get(s.id)
+    const row: (string | number)[] = [s.name]
+    for (let d = 1; d <= days; d++) row.push(dmap?.get(d) ?? '')
+    values.push(row)
   }
-  if (byUser.size === 0) rows.push(['（まだ提出はありません）'])
 
   const tab = `希望_${year}年${mon}月`
   try {
-    await writeSheet(tab, rows)
+    await writeShiftGrid(tab, values, year, mon)
   } catch (e) {
     return NextResponse.json({ error: `シート書き込み失敗: ${(e as Error).message}` }, { status: 400 })
   }
-  return NextResponse.json({ ok: true, tab, count: byUser.size })
+  return NextResponse.json({ ok: true, tab, submitted: byUser.size, staff: staff.length })
 }
