@@ -74,6 +74,8 @@ export async function writeShiftGrid(tab: string, values: (string | number)[][],
   const maxCol = dayStartCol + days
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const requests: any[] = [
+    // 既存の書式をリセット（前回の色残りを消す）
+    { repeatCell: { range: { sheetId: gid, startRowIndex: 0, endRowIndex: 200, startColumnIndex: 0, endColumnIndex: 40 }, cell: { userEnteredFormat: { backgroundColor: { red: 1, green: 1, blue: 1 }, textFormat: { bold: false, foregroundColor: { red: 0, green: 0, blue: 0 } } } }, fields: 'userEnteredFormat.backgroundColor,userEnteredFormat.textFormat.bold,userEnteredFormat.textFormat.foregroundColor' } },
     { updateSheetProperties: { properties: { sheetId: gid, gridProperties: { frozenRowCount: 3, frozenColumnCount: dayStartCol } }, fields: 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount' } },
     { repeatCell: { range: { sheetId: gid, startRowIndex: 1, endRowIndex: 3 }, cell: { userEnteredFormat: { textFormat: { bold: true }, horizontalAlignment: 'CENTER' } }, fields: 'userEnteredFormat.textFormat.bold,userEnteredFormat.horizontalAlignment' } },
   ]
