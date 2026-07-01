@@ -53,9 +53,11 @@ export async function writeSheet(tab: string, values: (string | number)[][]) {
   if (j.error) throw new Error(j.error.message)
 }
 
-// 希望タブ：値の書き込み＋土日色分け・見出し固定（他タブ風）
-// values: row0=タイトル / row1=名前+日番号 / row2=空+曜日 / row3..=スタッフ行
-export async function writeShiftGrid(tab: string, values: (string | number)[][], year: number, month: number) {
+// 希望タブ：値の書き込み＋土日色分け・区分見出し・見出し固定（確定タブ風）
+export async function writeShiftGrid(tab: string, values: (string | number)[][], year: number, month: number,
+  opts?: { dayStartCol?: number; sectionRows?: number[] }) {
+  const dayStartCol = opts?.dayStartCol ?? 1
+  const sectionRows = opts?.sectionRows ?? []
   const t = await token(false)
   await ensureTab(tab, t)
   const gid = await getSheetGid(tab, t)
@@ -69,16 +71,22 @@ export async function writeShiftGrid(tab: string, values: (string | number)[][],
 
   const days = new Date(year, month, 0).getDate()
   const totalRows = values.length
+  const maxCol = dayStartCol + days
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const requests: any[] = [
-    { updateSheetProperties: { properties: { sheetId: gid, gridProperties: { frozenRowCount: 3, frozenColumnCount: 1 } }, fields: 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount' } },
+    { updateSheetProperties: { properties: { sheetId: gid, gridProperties: { frozenRowCount: 3, frozenColumnCount: dayStartCol } }, fields: 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount' } },
     { repeatCell: { range: { sheetId: gid, startRowIndex: 1, endRowIndex: 3 }, cell: { userEnteredFormat: { textFormat: { bold: true }, horizontalAlignment: 'CENTER' } }, fields: 'userEnteredFormat.textFormat.bold,userEnteredFormat.horizontalAlignment' } },
   ]
+  // 土日列
   for (let d = 1; d <= days; d++) {
     const wd = new Date(year, month - 1, d).getDay()
     if (wd !== 0 && wd !== 6) continue
-    const col = d // A=0(名前), B=1=1日 → d日は列d
+    const col = dayStartCol + (d - 1)
     requests.push({ repeatCell: { range: { sheetId: gid, startColumnIndex: col, endColumnIndex: col + 1, startRowIndex: 1, endRowIndex: totalRows }, cell: { userEnteredFormat: { backgroundColor: wd === 0 ? { red: 0.99, green: 0.91, blue: 0.91 } : { red: 0.91, green: 0.94, blue: 0.99 } } }, fields: 'userEnteredFormat.backgroundColor' } })
+  }
+  // 区分見出し行（紺背景・白太字・全幅）
+  for (const idx of sectionRows) {
+    requests.push({ repeatCell: { range: { sheetId: gid, startRowIndex: idx, endRowIndex: idx + 1, startColumnIndex: 0, endColumnIndex: maxCol }, cell: { userEnteredFormat: { backgroundColor: { red: 0.10, green: 0.10, blue: 0.18 }, textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } } } }, fields: 'userEnteredFormat.backgroundColor,userEnteredFormat.textFormat' } })
   }
   await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}:batchUpdate`, {
     method: 'POST', headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' }, body: JSON.stringify({ requests }),
