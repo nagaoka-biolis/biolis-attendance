@@ -126,6 +126,18 @@ export default function AdminPage() {
   const [staffList, setStaffList] = useState<Profile[]>([])
   const [shiftStaffId, setShiftStaffId] = useState('')
   const [adminShifts, setAdminShifts] = useState<Shift[]>([])
+  const [deadlineInput, setDeadlineInput] = useState('')
+  const [deadlineMsg, setDeadlineMsg] = useState('')
+
+  const loadDeadline = useCallback(async (month: string) => {
+    const { data } = await supabase.from('shift_deadlines').select('deadline').eq('month', month).maybeSingle()
+    setDeadlineInput((data as { deadline?: string } | null)?.deadline ?? '')
+  }, [])
+  const saveDeadline = async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from('shift_deadlines') as any).upsert({ month: selectedMonth, deadline: deadlineInput || null })
+    setDeadlineMsg(error ? '保存に失敗しました' : `締切を ${deadlineInput || '未設定'} に設定しました`)
+  }
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
 
@@ -507,6 +519,10 @@ export default function AdminPage() {
     if (tab === 'payroll') fetchPayroll(selectedMonth)
   }, [tab, selectedMonth, fetchPayroll])
 
+  useEffect(() => {
+    if (tab === 'shift') loadDeadline(selectedMonth)
+  }, [tab, selectedMonth, loadDeadline])
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push('/')
@@ -760,6 +776,14 @@ export default function AdminPage() {
               {importMsg.text}
             </div>
           )}
+          <div className="mb-4 p-3 rounded-lg flex items-center gap-2 flex-wrap" style={{ background: 'var(--off-white)' }}>
+            <span className="text-xs" style={{ color: 'var(--gray)' }}>シフト希望の締切（{selectedMonth.replace('-', '年')}月）：</span>
+            <input type="date" value={deadlineInput} onChange={e => setDeadlineInput(e.target.value)}
+              className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }} />
+            <button onClick={saveDeadline} className="btn-gold text-xs px-4 py-1.5 rounded-full">締切を保存</button>
+            {deadlineMsg && <span className="text-xs" style={{ color: 'var(--gray)' }}>{deadlineMsg}</span>}
+            <span className="text-xs" style={{ color: 'var(--gray)' }}>※この日まで先生は希望を変更できます</span>
+          </div>
           {!shiftStaffId ? (
             <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>スタッフを選ぶと、その人のシフトが表示されます</p>
           ) : (

@@ -51,6 +51,24 @@ export default function DashboardPage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   })
   const [shifts, setShifts] = useState<Shift[]>([])
+  const [reqMap, setReqMap] = useState<Record<number, { kind: string; start: string; end: string }>>({})
+  const [reqDeadline, setReqDeadline] = useState<string | null>(null)
+  const [reqMsg, setReqMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+  const [reqSaving, setReqSaving] = useState(false)
+
+  const fetchRequests = useCallback(async (userId: string, month: string) => {
+    const [year, mon] = month.split('-').map(Number)
+    const start = `${year}-${String(mon).padStart(2, '0')}-01`
+    const end = `${year}-${String(mon).padStart(2, '0')}-${new Date(year, mon, 0).getDate()}`
+    const { data } = await supabase.from('shift_requests').select('*').eq('user_id', userId).gte('date', start).lte('date', end)
+    const m: Record<number, { kind: string; start: string; end: string }> = {}
+    for (const r of (data ?? []) as { date: string; kind: string; start_time: string | null; end_time: string | null }[]) {
+      m[new Date(r.date).getDate()] = { kind: r.kind, start: r.start_time ?? '', end: r.end_time ?? '' }
+    }
+    setReqMap(m)
+    const { data: dl } = await supabase.from('shift_deadlines').select('deadline').eq('month', month).maybeSingle()
+    setReqDeadline((dl as { deadline?: string } | null)?.deadline ?? null)
+  }, [])
 
   const fetchShifts = useCallback(async (userId: string, month: string): Promise<Shift[]> => {
     const [year, mon] = month.split('-').map(Number)
@@ -137,8 +155,9 @@ export default function DashboardPage() {
     if (!profile) return
     let active = true
     fetchShifts(profile.id, shiftMonth).then(rows => { if (active) setShifts(rows) })
+    fetchRequests(profile.id, shiftMonth)
     return () => { active = false }
-  }, [profile, shiftMonth, fetchShifts])
+  }, [profile, shiftMonth, fetchShifts, fetchRequests])
 
   useEffect(() => {
     const init = async () => {
@@ -220,6 +239,40 @@ export default function DashboardPage() {
       await fetchHistory(profile.id, historyMonth)
     }
     setLoading(false)
+  }
+
+  const reqLocked = !!(reqDeadline && new Date().toISOString().slice(0, 10) > reqDeadline)
+  const setReqDay = (day: number, patch: Partial<{ kind: string; start: string; end: string }>) => {
+    const base = { kind: 'undecided', start: '', end: '' }
+    setReqMap(prev => ({ ...prev, [day]: { ...base, ...prev[day], ...patch } }))
+  }
+  const handleSubmitRequests = async () => {
+    if (!profile || reqLocked) return
+    setReqSaving(true); setReqMsg(null)
+    const [year, mon] = shiftMonth.split('-').map(Number)
+    const start = `${year}-${String(mon).padStart(2, '0')}-01`
+    const end = `${year}-${String(mon).padStart(2, '0')}-${new Date(year, mon, 0).getDate()}`
+    await supabase.from('shift_requests').delete().eq('user_id', profile.id).gte('date', start).lte('date', end)
+    const rows = Object.entries(reqMap)
+      .filter(([, v]) => v.kind && v.kind !== 'undecided')
+      .map(([d, v]) => ({
+        user_id: profile.id, date: `${year}-${String(mon).padStart(2, '0')}-${String(Number(d)).padStart(2, '0')}`,
+        kind: v.kind, start_time: v.kind === 'work' ? (v.start || null) : null, end_time: v.kind === 'work' ? (v.end || null) : null,
+      }))
+    if (rows.length) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase.from('shift_requests') as any).insert(rows)
+      if (error) { setReqMsg({ text: '保存に失敗しました', type: 'error' }); setReqSaving(false); return }
+    }
+    // スプレッドシートへ反映
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/sync-shift-requests', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+      body: JSON.stringify({ month: shiftMonth }),
+    })
+    if (res.ok) setReqMsg({ text: 'シフト希望を提出しました（スプレッドシートに反映済み）', type: 'success' })
+    else setReqMsg({ text: '提出は保存されましたが、シート反映に失敗しました', type: 'error' })
+    setReqSaving(false)
   }
 
   const handleLogout = async () => {
@@ -456,6 +509,52 @@ export default function DashboardPage() {
               </div>
             </>
           )}
+        </div>
+
+        {/* シフト希望の提出 */}
+        <div className="card p-6">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs tracking-[0.2em]" style={{ color: 'var(--gray)' }}>SHIFT REQUEST — シフト希望</div>
+            <span className={`text-xs px-2 py-0.5 rounded-full ${reqLocked ? 'bg-slate-100 text-slate-500' : Object.keys(reqMap).length ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+              {reqLocked ? '締切後' : Object.keys(reqMap).length ? '提出済み' : '未提出'}
+            </span>
+          </div>
+          <div className="text-xs mb-3" style={{ color: 'var(--gray)' }}>
+            {shiftMonth.replace('-', '年')}月の希望を入力 → 「提出」で反映されます。
+            {reqDeadline ? `締切：${new Date(reqDeadline).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })}まで` : '（締切未設定）'}
+            {reqLocked && ' ※締切を過ぎたため変更できません'}
+          </div>
+          <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
+            {Array.from({ length: new Date(Number(shiftMonth.split('-')[0]), Number(shiftMonth.split('-')[1]), 0).getDate() }, (_, i) => i + 1).map(day => {
+              const wd = new Date(Number(shiftMonth.split('-')[0]), Number(shiftMonth.split('-')[1]) - 1, day).getDay()
+              const v = reqMap[day] ?? { kind: 'undecided', start: '', end: '' }
+              return (
+                <div key={day} className="flex items-center gap-2 text-sm py-0.5">
+                  <span className="w-14 text-xs" style={{ color: wd === 0 ? '#EF4444' : wd === 6 ? '#2563EB' : 'var(--gray)' }}>{shiftMonth.split('-')[1]}/{day}({['日', '月', '火', '水', '木', '金', '土'][wd]})</span>
+                  <select disabled={reqLocked} value={v.kind} onChange={e => setReqDay(day, { kind: e.target.value })}
+                    className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)', background: reqLocked ? '#f3f3f3' : '#fff', color: 'var(--navy)' }}>
+                    <option value="undecided">未定</option>
+                    <option value="work">勤務希望</option>
+                    <option value="off">休み希望</option>
+                  </select>
+                  {v.kind === 'work' && (
+                    <>
+                      <input disabled={reqLocked} type="time" value={v.start} onChange={e => setReqDay(day, { start: e.target.value })} className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }} />
+                      <span className="text-xs">〜</span>
+                      <input disabled={reqLocked} type="time" value={v.end} onChange={e => setReqDay(day, { end: e.target.value })} className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }} />
+                    </>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {reqMsg && (
+            <div className={`mt-3 text-sm rounded-lg px-3 py-2 ${reqMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{reqMsg.text}</div>
+          )}
+          <button onClick={handleSubmitRequests} disabled={reqSaving || reqLocked}
+            className="btn-gold w-full py-3 rounded-lg text-sm tracking-[0.15em] mt-3">
+            {reqSaving ? '提出中...' : 'シフト希望を提出'}
+          </button>
         </div>
 
         {/* 勤怠履歴 */}

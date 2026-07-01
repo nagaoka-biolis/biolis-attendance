@@ -25,3 +25,15 @@ export async function requireAdmin(req: NextRequest): Promise<
   }
   return { ok: true, admin }
 }
+
+// ログイン済みユーザーなら誰でも（本人確認）
+export async function requireUser(req: NextRequest): Promise<
+  { ok: true; admin: SupabaseClient; userId: string } | { ok: false; error: string; status: number }
+> {
+  const admin = adminClient()
+  const t = req.headers.get('authorization')?.replace('Bearer ', '')
+  if (!t) return { ok: false, error: '認証が必要です', status: 401 }
+  const { data: { user }, error } = await admin.auth.getUser(t)
+  if (error || !user) return { ok: false, error: '認証に失敗しました', status: 401 }
+  return { ok: true, admin, userId: user.id }
+}
