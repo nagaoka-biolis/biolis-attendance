@@ -52,6 +52,7 @@ export default function DashboardPage() {
   })
   const [shifts, setShifts] = useState<Shift[]>([])
   const [reqMap, setReqMap] = useState<Record<number, { kind: string; start: string; end: string }>>({})
+  const [submittedCount, setSubmittedCount] = useState(0)
   const [reqDeadline, setReqDeadline] = useState<string | null>(null)
   const [reqMsg, setReqMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [reqSaving, setReqSaving] = useState(false)
@@ -66,6 +67,7 @@ export default function DashboardPage() {
       m[new Date(r.date).getDate()] = { kind: r.kind, start: r.start_time ?? '', end: r.end_time ?? '' }
     }
     setReqMap(m)
+    setSubmittedCount((data ?? []).length)
     const { data: dl } = await supabase.from('shift_deadlines').select('deadline').eq('month', month).maybeSingle()
     setReqDeadline((dl as { deadline?: string } | null)?.deadline ?? null)
   }, [])
@@ -272,6 +274,7 @@ export default function DashboardPage() {
     })
     if (res.ok) setReqMsg({ text: 'シフト希望を提出しました（スプレッドシートに反映済み）', type: 'success' })
     else setReqMsg({ text: '提出は保存されましたが、シート反映に失敗しました', type: 'error' })
+    await fetchRequests(profile.id, shiftMonth)
     setReqSaving(false)
   }
 
@@ -515,8 +518,8 @@ export default function DashboardPage() {
         <div className="card p-6">
           <div className="flex items-center justify-between mb-2">
             <div className="text-xs tracking-[0.2em]" style={{ color: 'var(--gray)' }}>SHIFT REQUEST — シフト希望</div>
-            <span className={`text-xs px-2 py-0.5 rounded-full ${reqLocked ? 'bg-slate-100 text-slate-500' : Object.keys(reqMap).length ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-              {reqLocked ? '締切後' : Object.keys(reqMap).length ? '提出済み' : '未提出'}
+            <span className={`text-xs px-2 py-0.5 rounded-full ${reqLocked ? 'bg-slate-100 text-slate-500' : submittedCount > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+              {reqLocked ? '締切後' : submittedCount > 0 ? '提出済み' : '未提出'}
             </span>
           </div>
           <div className="text-xs mb-3" style={{ color: 'var(--gray)' }}>
