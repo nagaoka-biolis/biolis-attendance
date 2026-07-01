@@ -539,8 +539,9 @@ export default function DashboardPage() {
                   </select>
                   {v.kind === 'work' && (
                     <>
+                      <span className="text-xs" style={{ color: 'var(--gray)' }}>出勤</span>
                       <input disabled={reqLocked} type="time" value={v.start} onChange={e => setReqDay(day, { start: e.target.value })} className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }} />
-                      <span className="text-xs">〜</span>
+                      <span className="text-xs" style={{ color: 'var(--gray)' }}>退勤</span>
                       <input disabled={reqLocked} type="time" value={v.end} onChange={e => setReqDay(day, { end: e.target.value })} className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }} />
                     </>
                   )}
