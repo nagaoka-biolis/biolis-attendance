@@ -87,3 +87,30 @@ export async function notifyKintai(text: string): Promise<boolean> {
   await sendChannelMessage(channelId, text)
   return true
 }
+
+export type ClockType = 'clock_in' | 'clock_out' | 'break_start' | 'break_end'
+
+// 打刻内容を整形して勤怠管理グループへ通知
+export async function notifyClock(
+  name: string,
+  type: ClockType,
+  isValid: boolean
+): Promise<boolean> {
+  const label = {
+    clock_in: '🟢 出勤',
+    clock_out: '🔴 退勤',
+    break_start: '☕ 休憩開始',
+    break_end: '🔚 休憩終了',
+  }[type]
+  const at = new Date().toLocaleString('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  let text = `${label}  ${name}\n🕐 ${at}`
+  if (!isValid) text += '\n⚠️ クリニック外からの打刻（要確認）'
+  return notifyKintai(text)
+}

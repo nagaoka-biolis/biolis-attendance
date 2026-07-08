@@ -254,6 +254,16 @@ export default function DashboardPage() {
       setMessage({ text: `${label}を記録しました`, type: 'success' })
       await fetchTodayRecords(profile.id)
       await fetchHistory(profile.id, historyMonth)
+
+      // LINE WORKS 勤怠管理グループへ自動通知（失敗しても打刻はブロックしない）
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        void fetch('/api/lineworks-notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+          body: JSON.stringify({ type, isValid }),
+        }).catch(() => { /* 通知失敗は無視 */ })
+      } catch { /* noop */ }
     }
     setLoading(false)
   }

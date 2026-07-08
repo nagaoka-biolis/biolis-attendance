@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { adminClient } from '@/lib/server-admin'
-import { notifyKintai } from '@/lib/lineworks'
+import { adminClient, requireUser } from '@/lib/server-admin'
+import { notifyClock, ClockType } from '@/lib/lineworks'
 
 export const runtime = 'nodejs'
 
-// テスト送信 & 疎通確認用エンドポイント。
-// GET  : いま保存されている channelId を確認できる（動作確認用）
-// POST : { text } を勤怠管理グループへ送信（未指定ならテスト文言）
+// GET : いま保存されている channelId を確認できる（動作確認用）
 export async function GET() {
   const admin = adminClient()
   const { data } = await admin
@@ -18,24 +16,42 @@ export async function GET() {
   return NextResponse.json({ ok: true, channelId })
 }
 
+// POST : 打刻通知（要ログイン）。{ type, isValid } を受け取り、
+// 名前はサーバー側でプロフィールから引く（クライアント申告を信用しない）。
 export async function POST(req: NextRequest) {
-  let text = 'BiOLiS勤怠通知：テスト送信です'
+  const auth = await requireUser(req)
+  if (!auth.ok) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status })
+  }
+
+  let type: ClockType | undefined
+  let isValid = true
   try {
     const body = await req.json()
-    if (body?.text) text = String(body.text)
+    type = body?.type
+    isValid = body?.isValid !== false
   } catch {
-    /* body無しならデフォルト文言 */
+    /* noop */
   }
+
+  const validTypes: ClockType[] = ['clock_in', 'clock_out', 'break_start', 'break_end']
+  if (!type || !validTypes.includes(type)) {
+    return NextResponse.json({ ok: false, error: 'type が不正です' }, { status: 400 })
+  }
+
+  const { data: me } = await auth.admin
+    .from('profiles')
+    .select('name')
+    .eq('id', auth.userId)
+    .single()
+  const name = (me as { name?: string } | null)?.name ?? 'スタッフ'
+
   try {
-    const sent = await notifyKintai(text)
-    if (!sent) {
-      return NextResponse.json(
-        { ok: false, error: 'channelId未保存です。先に勤怠管理グループへBotを招待してください。' },
-        { status: 400 }
-      )
-    }
-    return NextResponse.json({ ok: true })
+    const sent = await notifyClock(name, type, isValid)
+    // channelId未保存でも打刻自体は成功させたいので ok:true を返す（sentで判別可能）
+    return NextResponse.json({ ok: true, sent })
   } catch (e) {
-    return NextResponse.json({ ok: false, error: String(e) }, { status: 500 })
+    // 通知失敗は打刻をブロックしない
+    return NextResponse.json({ ok: false, error: String(e) }, { status: 200 })
   }
 }
