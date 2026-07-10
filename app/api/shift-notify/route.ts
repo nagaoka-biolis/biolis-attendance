@@ -93,10 +93,10 @@ async function buildAndSend(): Promise<{ ok: boolean; sent: boolean; count: numb
   const channelId = await getSetting('lineworks_shift_channel_id')
   const botId = process.env.LINEWORKS_SHIFT_BOT_ID
   if (!channelId || !botId) {
-    return { ok: false, sent: false, count: list.length, error: 'shift channelId または BOT_ID が未設定です' }
+    return { ok: false, sent: false, count: total, error: 'shift channelId または BOT_ID が未設定です' }
   }
   await sendChannelMessage(channelId, text, botId)
-  return { ok: true, sent: true, count: list.length }
+  return { ok: true, sent: true, count: total }
 }
 
 // Cron(CRON_SECRET) もしくは 管理者ログイン のどちらかで実行を許可
