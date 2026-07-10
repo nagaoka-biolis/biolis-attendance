@@ -62,11 +62,13 @@ async function getChannelId(): Promise<string | null> {
   return (data as { value?: string } | null)?.value ?? null
 }
 
-// 指定channelにテキスト送信
-export async function sendChannelMessage(channelId: string, text: string): Promise<void> {
+// 指定channelにテキスト送信。botId未指定なら勤怠Bot(env)。
+// 同一テナントのアプリトークンは任意のBotとして送信できるため、
+// botIdを渡せば別Bot（例:小口現金）として送れる。
+export async function sendChannelMessage(channelId: string, text: string, botId?: string): Promise<void> {
   const token = await getAccessToken()
-  const botId = process.env.LINEWORKS_BOT_ID!
-  const res = await fetch(`${API_BASE}/bots/${botId}/channels/${channelId}/messages`, {
+  const bid = botId || process.env.LINEWORKS_BOT_ID!
+  const res = await fetch(`${API_BASE}/bots/${bid}/channels/${channelId}/messages`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,

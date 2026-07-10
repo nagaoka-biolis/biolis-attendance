@@ -28,8 +28,10 @@ export async function POST(req: NextRequest) {
   }
   try {
     let sent = false
+    const botId = b?.botId ? String(b.botId) : undefined
     if (b?.channelId) {
-      await sendChannelMessage(String(b.channelId), text)
+      // botId指定があればそのBot（小口現金など）として送信
+      await sendChannelMessage(String(b.channelId), text, botId)
       sent = true
     } else {
       sent = await notifyKintai(text)
