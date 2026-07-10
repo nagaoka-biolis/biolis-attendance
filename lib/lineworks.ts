@@ -51,15 +51,20 @@ async function getAccessToken(): Promise<string> {
   return json.access_token as string
 }
 
-// 保存済み channelId を app_settings から取り出す
-async function getChannelId(): Promise<string | null> {
+// app_settings から任意キーの値を取り出す
+export async function getSetting(key: string): Promise<string | null> {
   const admin = adminClient()
   const { data } = await admin
     .from('app_settings')
     .select('value')
-    .eq('key', 'lineworks_channel_id')
+    .eq('key', key)
     .maybeSingle()
   return (data as { value?: string } | null)?.value ?? null
+}
+
+// 保存済み channelId（勤怠）を app_settings から取り出す
+async function getChannelId(): Promise<string | null> {
+  return getSetting('lineworks_channel_id')
 }
 
 // 指定channelにテキスト送信。botId未指定なら勤怠Bot(env)。

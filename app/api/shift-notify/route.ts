@@ -1,0 +1,95 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { adminClient } from '@/lib/server-admin'
+import { getSetting, sendChannelMessage } from '@/lib/lineworks'
+
+export const runtime = 'nodejs'
+
+// 毎朝、当日の出勤者一覧を専用LINE WORKSグループへ通知する（Vercel Cronから叩く）。
+// 保護: CRON_SECRET を Authorization: Bearer で要求（Vercel Cronが自動付与）。
+
+// JST基準の「今日」を YYYY-MM-DD で返す
+function todayJST(): { date: string; label: string } {
+  const parts = new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
+  }).formatToParts(new Date())
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? ''
+  const y = get('year')
+  const m = get('month')
+  const d = get('day')
+  const w = get('weekday')
+  return { date: `${y}-${m}-${d}`, label: `${Number(m)}月${Number(d)}日(${w})` }
+}
+
+async function buildAndSend(): Promise<{ ok: boolean; sent: boolean; count: number; error?: string }> {
+  const { date, label } = todayJST()
+  const admin = adminClient()
+
+  // 当日の「出勤」シフトを取得
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: shifts } = await (admin.from('shifts') as any)
+    .select('user_id, start_time, end_time, kind')
+    .eq('date', date)
+    .eq('kind', 'work')
+  const rows = (shifts ?? []) as { user_id: string; start_time: string | null; end_time: string | null }[]
+
+  // 氏名を引く
+  const { data: profs } = await admin.from('profiles').select('id, name')
+  const nameById = new Map<string, string>()
+  for (const p of (profs ?? []) as { id: string; name: string }[]) nameById.set(p.id, p.name)
+
+  // 勤務開始時刻順にソート（時刻なしは末尾）
+  const list = rows
+    .map((r) => ({
+      name: nameById.get(r.user_id) ?? '(不明)',
+      start: r.start_time,
+      end: r.end_time,
+    }))
+    .sort((a, b) => (a.start ?? '99:99').localeCompare(b.start ?? '99:99'))
+
+  let text: string
+  if (list.length === 0) {
+    text = `📅 本日のシフト（${label}）\n\n本日の出勤予定はありません。`
+  } else {
+    const lines = list.map((x) => {
+      const time = x.start ? `${x.start}${x.end ? `-${x.end}` : '-'}` : '時間未設定'
+      return `・${x.name}  ${time}`
+    })
+    text = `📅 本日のシフト（${label}）\n\n${lines.join('\n')}\n\n👥 合計 ${list.length}名`
+  }
+
+  const channelId = await getSetting('lineworks_shift_channel_id')
+  const botId = process.env.LINEWORKS_SHIFT_BOT_ID
+  if (!channelId || !botId) {
+    return { ok: false, sent: false, count: list.length, error: 'shift channelId または BOT_ID が未設定です' }
+  }
+  await sendChannelMessage(channelId, text, botId)
+  return { ok: true, sent: true, count: list.length }
+}
+
+// Cronからの実行を検証
+function authorized(req: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET
+  if (!secret) return true // 未設定なら素通し（開発時）
+  return req.headers.get('authorization') === `Bearer ${secret}`
+}
+
+export async function GET(req: NextRequest) {
+  if (!authorized(req)) {
+    return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 })
+  }
+  try {
+    const r = await buildAndSend()
+    return NextResponse.json(r, { status: r.ok ? 200 : 200 })
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: String(e) }, { status: 500 })
+  }
+}
+
+// 手動テスト用（同じ処理）
+export async function POST(req: NextRequest) {
+  return GET(req)
+}
