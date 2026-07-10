@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { adminClient } from '@/lib/server-admin'
+import { adminClient, requireAdmin } from '@/lib/server-admin'
 import { getSetting, sendChannelMessage } from '@/lib/lineworks'
 
 export const runtime = 'nodejs'
@@ -70,20 +70,23 @@ async function buildAndSend(): Promise<{ ok: boolean; sent: boolean; count: numb
   return { ok: true, sent: true, count: list.length }
 }
 
-// Cronからの実行を検証
-function authorized(req: NextRequest): boolean {
+// Cron(CRON_SECRET) もしくは 管理者ログイン のどちらかで実行を許可
+async function authorized(req: NextRequest): Promise<boolean> {
   const secret = process.env.CRON_SECRET
+  if (secret && req.headers.get('authorization') === `Bearer ${secret}`) return true
   if (!secret) return true // 未設定なら素通し（開発時）
-  return req.headers.get('authorization') === `Bearer ${secret}`
+  // 管理者の手動テストを許可
+  const auth = await requireAdmin(req)
+  return auth.ok
 }
 
 export async function GET(req: NextRequest) {
-  if (!authorized(req)) {
+  if (!(await authorized(req))) {
     return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 })
   }
   try {
     const r = await buildAndSend()
-    return NextResponse.json(r, { status: r.ok ? 200 : 200 })
+    return NextResponse.json(r)
   } catch (e) {
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 })
   }
