@@ -974,11 +974,29 @@ export default function AdminPage() {
                 <div key={s.id} className="flex items-center justify-between gap-2 py-2.5 border-b border-gray-50 flex-wrap">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium" style={{ color: 'var(--navy)' }}>{s.name}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      s.role === 'admin' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
-                    }`}>
-                      {s.role === 'admin' ? '管理者' : 'スタッフ'}
-                    </span>
+                    <button
+                      onClick={() => handleRenameStaff(s)}
+                      className="text-xs px-2 py-0.5 rounded-full border hover:bg-white transition"
+                      style={{ borderColor: 'var(--gray-light)', color: 'var(--gray)' }}
+                    >
+                      名前変更
+                    </button>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs" style={{ color: 'var(--gray)' }}>権限</span>
+                      {s.id === profile.id ? (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">管理者（自分）</span>
+                      ) : (
+                        <select
+                          value={s.role}
+                          onChange={e => handleChangeRole(s, e.target.value)}
+                          className="text-xs px-2 py-1 rounded-full border bg-white"
+                          style={{ borderColor: 'var(--gray-light)', color: 'var(--navy)' }}
+                        >
+                          <option value="staff">スタッフ</option>
+                          <option value="admin">管理者</option>
+                        </select>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-1">
