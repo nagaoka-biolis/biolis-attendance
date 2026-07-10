@@ -55,15 +55,18 @@ export async function POST(req: NextRequest) {
   const byUser = new Map<string, { user_id: string; date: string; start_time: string | null; end_time: string | null; kind: string; status: string; note: string | null }[]>()
   const updatedNames: string[] = []
   const skipped = new Set<string>()
+  const catByUser = new Map<string, string>()  // userId → 職種セクション(Dr/Ns/UK/ABLNS/ABLUK)
 
   let i = 4 // sheet row 5 から
+  let currentSection: string | null = null
   while (i < values.length) {
     const a = (values[i]?.[0] ?? '').toString()
     const key = nk(a)
     if (!a) { i++; continue }
-    if (HEADERS.has(key)) { i++; continue }
+    if (HEADERS.has(key)) { currentSection = key; i++; continue }
     const timeRow = values[i] ?? []; const noteRow = values[i + 1] ?? []
     const uid = matchId(a)
+    if (uid && currentSection) catByUser.set(uid, currentSection)
     const rows: typeof byUser extends Map<string, infer V> ? V : never = []
     let hasData = false
     for (let c = 2; c <= 32; c++) {
@@ -89,6 +92,12 @@ export async function POST(req: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await (admin.from('shifts') as any).insert(rows)
     if (!error) count += rows.length
+  }
+
+  // 職種（セクション）を profiles に反映
+  for (const [uid, cat] of catByUser.entries()) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (admin.from('profiles') as any).update({ category: cat }).eq('id', uid)
   }
 
   return NextResponse.json({ ok: true, month: tab, count, updated: updatedNames, skipped: Array.from(skipped) })

@@ -24,6 +24,17 @@ function todayJST(): { date: string; label: string } {
   return { date: `${y}-${m}-${d}`, label: `${Number(m)}月${Number(d)}日(${w})` }
 }
 
+// 職種セクションの表示ラベルと並び順
+const CATEGORY_LABEL: Record<string, string> = {
+  Dr: 'Dr',
+  Ns: 'Ns',
+  UK: 'UK',
+  ABLNS: 'ABL Ns',
+  ABLUK: 'ABL UK',
+}
+const CATEGORY_ORDER = ['Dr', 'Ns', 'UK', 'ABLNS', 'ABLUK']
+const OTHER = '__other__'
+
 async function buildAndSend(): Promise<{ ok: boolean; sent: boolean; count: number; error?: string }> {
   const { date, label } = todayJST()
   const admin = adminClient()
@@ -36,29 +47,47 @@ async function buildAndSend(): Promise<{ ok: boolean; sent: boolean; count: numb
     .eq('kind', 'work')
   const rows = (shifts ?? []) as { user_id: string; start_time: string | null; end_time: string | null }[]
 
-  // 氏名を引く
-  const { data: profs } = await admin.from('profiles').select('id, name')
+  // 氏名・職種を引く
+  const { data: profs } = await admin.from('profiles').select('id, name, category')
   const nameById = new Map<string, string>()
-  for (const p of (profs ?? []) as { id: string; name: string }[]) nameById.set(p.id, p.name)
+  const catById = new Map<string, string>()
+  for (const p of (profs ?? []) as { id: string; name: string; category: string | null }[]) {
+    nameById.set(p.id, p.name)
+    catById.set(p.id, p.category || OTHER)
+  }
 
-  // 勤務開始時刻順にソート（時刻なしは末尾）
-  const list = rows
-    .map((r) => ({
-      name: nameById.get(r.user_id) ?? '(不明)',
-      start: r.start_time,
-      end: r.end_time,
-    }))
-    .sort((a, b) => (a.start ?? '99:99').localeCompare(b.start ?? '99:99'))
+  // 職種ごとにまとめ、各職種内は勤務開始時刻順
+  const byCat = new Map<string, { name: string; start: string | null; end: string | null }[]>()
+  for (const r of rows) {
+    const cat = catById.get(r.user_id) ?? OTHER
+    if (!byCat.has(cat)) byCat.set(cat, [])
+    byCat.get(cat)!.push({ name: nameById.get(r.user_id) ?? '(不明)', start: r.start_time, end: r.end_time })
+  }
+  for (const arr of byCat.values()) {
+    arr.sort((a, b) => (a.start ?? '99:99').localeCompare(b.start ?? '99:99'))
+  }
 
+  const total = rows.length
   let text: string
-  if (list.length === 0) {
+  if (total === 0) {
     text = `📅 本日のシフト（${label}）\n\n本日の出勤予定はありません。`
   } else {
-    const lines = list.map((x) => {
-      const time = x.start ? `${x.start}${x.end ? `-${x.end}` : '-'}` : '時間未設定'
-      return `・${x.name}  ${time}`
+    // 並び順：定義順 → 未定義職種 → その他
+    const cats = [
+      ...CATEGORY_ORDER.filter((c) => byCat.has(c)),
+      ...[...byCat.keys()].filter((c) => !CATEGORY_ORDER.includes(c) && c !== OTHER),
+    ]
+    if (byCat.has(OTHER)) cats.push(OTHER)
+
+    const blocks = cats.map((cat) => {
+      const heading = cat === OTHER ? 'その他' : CATEGORY_LABEL[cat] ?? cat
+      const lines = byCat.get(cat)!.map((x) => {
+        const time = x.start ? `${x.start}${x.end ? `-${x.end}` : '-'}` : '時間未設定'
+        return `・${x.name}  ${time}`
+      })
+      return `[${heading}]\n${lines.join('\n')}`
     })
-    text = `📅 本日のシフト（${label}）\n\n${lines.join('\n')}\n\n👥 合計 ${list.length}名`
+    text = `📅 本日のシフト（${label}）\n\n${blocks.join('\n\n')}\n\n👥 合計 ${total}名`
   }
 
   const channelId = await getSetting('lineworks_shift_channel_id')
