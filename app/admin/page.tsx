@@ -319,6 +319,31 @@ export default function AdminPage() {
     alert(res.ok ? `${s.name} さんのパスワードを再設定しました` : `失敗: ${r.error ?? '不明なエラー'}`)
   }
 
+  const handleRenameStaff = async (s: Profile) => {
+    const name = window.prompt(`${s.name} さんの新しい氏名を入力してください`, s.name)
+    if (name === null) return
+    if (!name.trim()) { alert('氏名を入力してください'); return }
+    const res = await fetch('/api/update-staff', {
+      method: 'POST', headers: await authHeader(),
+      body: JSON.stringify({ userId: s.id, name: name.trim() }),
+    })
+    const r = await res.json().catch(() => ({}))
+    if (res.ok) await fetchStaff()
+    else alert(`失敗: ${r.error ?? '不明なエラー'}`)
+  }
+
+  const handleChangeRole = async (s: Profile, role: string) => {
+    const label = role === 'admin' ? '管理者' : 'スタッフ'
+    if (!window.confirm(`${s.name} さんの権限を「${label}」に変更します。よろしいですか？`)) return
+    const res = await fetch('/api/update-staff', {
+      method: 'POST', headers: await authHeader(),
+      body: JSON.stringify({ userId: s.id, role }),
+    })
+    const r = await res.json().catch(() => ({}))
+    if (res.ok) await fetchStaff()
+    else alert(`失敗: ${r.error ?? '不明なエラー'}`)
+  }
+
   const handleDeleteStaff = async (s: Profile) => {
     if (!window.confirm(`${s.name} さんを削除します。\nこのスタッフのアカウントと打刻履歴・連絡もすべて削除され、元に戻せません。\n本当に削除しますか？`)) return
     const res = await fetch('/api/delete-staff', {
