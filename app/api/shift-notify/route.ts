@@ -39,29 +39,41 @@ async function buildAndSend(): Promise<{ ok: boolean; sent: boolean; count: numb
   const { date, label } = todayJST()
   const admin = adminClient()
 
-  // 当日の「出勤」シフトを取得
+  // 当日の「出勤」シフトを取得（display_name/category はシート由来）
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: shifts } = await (admin.from('shifts') as any)
-    .select('user_id, start_time, end_time, kind')
+    .select('user_id, display_name, category, start_time, end_time, kind')
     .eq('date', date)
     .eq('kind', 'work')
-  const rows = (shifts ?? []) as { user_id: string; start_time: string | null; end_time: string | null }[]
+  const rows = (shifts ?? []) as {
+    user_id: string | null
+    display_name: string | null
+    category: string | null
+    start_time: string | null
+    end_time: string | null
+  }[]
 
-  // 氏名・職種を引く
+  // 登録済みスタッフは正式な氏名を優先（シートは姓のみ/表記ゆれがあるため）
   const { data: profs } = await admin.from('profiles').select('id, name, category')
   const nameById = new Map<string, string>()
   const catById = new Map<string, string>()
   for (const p of (profs ?? []) as { id: string; name: string; category: string | null }[]) {
     nameById.set(p.id, p.name)
-    catById.set(p.id, p.category || OTHER)
+    if (p.category) catById.set(p.id, p.category)
   }
 
   // 職種ごとにまとめ、各職種内は勤務開始時刻順
   const byCat = new Map<string, { name: string; start: string | null; end: string | null }[]>()
   for (const r of rows) {
-    const cat = catById.get(r.user_id) ?? OTHER
+    const name =
+      (r.user_id && nameById.get(r.user_id)) ||
+      (r.display_name ? r.display_name.replace(/\s+/g, ' ') : '(不明)')
+    const cat =
+      r.category ||
+      (r.user_id ? catById.get(r.user_id) : null) ||
+      OTHER
     if (!byCat.has(cat)) byCat.set(cat, [])
-    byCat.get(cat)!.push({ name: nameById.get(r.user_id) ?? '(不明)', start: r.start_time, end: r.end_time })
+    byCat.get(cat)!.push({ name, start: r.start_time, end: r.end_time })
   }
   for (const arr of byCat.values()) {
     arr.sort((a, b) => (a.start ?? '99:99').localeCompare(b.start ?? '99:99'))

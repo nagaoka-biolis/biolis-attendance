@@ -51,10 +51,22 @@ export async function POST(req: NextRequest) {
   }
   const matchId = (a: string) => exact.get(a.trim()) ?? normed.get(nk(a)) ?? null
 
-  // 解析：各自2行（上=時間 / 下=備考）
-  const byUser = new Map<string, { user_id: string; date: string; start_time: string | null; end_time: string | null; kind: string; status: string; note: string | null }[]>()
-  const updatedNames: string[] = []
-  const skipped = new Set<string>()
+  // 解析：各自2行（上=時間 / 下=備考）。シートにいる全員を保存する
+  // （アプリ未登録でも display_name / category で通知に載せられる）。
+  type Row = {
+    user_id: string | null
+    display_name: string
+    category: string | null
+    date: string
+    start_time: string | null
+    end_time: string | null
+    kind: string
+    status: string
+    note: string | null
+  }
+  const allRows: Row[] = []
+  const updatedNames: string[] = []   // アプリ登録済みで反映した人
+  const nameOnlyNames: string[] = []  // 未登録だがシート名で載せる人
   const catByUser = new Map<string, string>()  // userId → 職種セクション(Dr/Ns/UK/ABLNS/ABLUK)
 
   let i = 4 // sheet row 5 から
@@ -66,8 +78,8 @@ export async function POST(req: NextRequest) {
     if (HEADERS.has(key)) { currentSection = key; i++; continue }
     const timeRow = values[i] ?? []; const noteRow = values[i + 1] ?? []
     const uid = matchId(a)
+    const displayName = a.trim().replace(/\s+/g, ' ')
     if (uid && currentSection) catByUser.set(uid, currentSection)
-    const rows: typeof byUser extends Map<string, infer V> ? V : never = []
     let hasData = false
     for (let c = 2; c <= 32; c++) {
       const day = c - 1
@@ -76,29 +88,43 @@ export async function POST(req: NextRequest) {
       const note = (noteRow[c] ?? '').toString().trim()
       if (!t) continue
       hasData = true
-      if (uid) rows.push({ user_id: uid, date: `${year}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`, start_time: t.start, end_time: t.end, kind: t.kind, status: '確定', note: note || null })
+      allRows.push({
+        user_id: uid,
+        display_name: displayName,
+        category: currentSection,
+        date: `${year}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+        start_time: t.start,
+        end_time: t.end,
+        kind: t.kind,
+        status: '確定',
+        note: note || null,
+      })
     }
-    if (uid) { if (rows.length) { byUser.set(uid, rows); updatedNames.push(a.trim()) } }
-    else if (hasData) skipped.add(a.trim())
+    if (hasData) { if (uid) updatedNames.push(displayName); else nameOnlyNames.push(displayName) }
     i += 2
   }
 
-  // 取り込み（対象月を一旦削除→投入）
+  // 取り込み（対象月を一旦まるごと削除→投入）
   const start = `${year}-${String(mon).padStart(2, '0')}-01`
   const end = `${year}-${String(mon).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
+  await admin.from('shifts').delete().gte('date', start).lte('date', end)
   let count = 0
-  for (const [uid, rows] of byUser.entries()) {
-    await admin.from('shifts').delete().eq('user_id', uid).gte('date', start).lte('date', end)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (admin.from('shifts') as any).insert(rows)
-    if (!error) count += rows.length
-  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error: insErr } = await (admin.from('shifts') as any).insert(allRows)
+  if (!insErr) count = allRows.length
 
-  // 職種（セクション）を profiles に反映
+  // 職種（セクション）を profiles にも反映（登録済みのみ）
   for (const [uid, cat] of catByUser.entries()) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (admin.from('profiles') as any).update({ category: cat }).eq('id', uid)
   }
 
-  return NextResponse.json({ ok: true, month: tab, count, updated: updatedNames, skipped: Array.from(skipped) })
+  return NextResponse.json({
+    ok: true,
+    month: tab,
+    count,
+    updated: updatedNames,
+    nameOnly: nameOnlyNames,
+    error: insErr?.message,
+  })
 }
