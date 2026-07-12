@@ -81,8 +81,14 @@ async function buildAndSend(
     if (!channelId) continue
     const name = nameById.get(r.user_id) ?? '先生'
     const time = r.start_time ? `${r.start_time}${r.end_time ? `-${r.end_time}` : ''}` : '時間未定'
-    let text = `🔔 出勤リマインド\n${name} 先生\n明日 ${label} ${time} の出勤予定です。\n\n※今後、出勤日の前日19時ごろに、このリマインドを自動でお送りします。`
-    if (test) text = TEST_NOTICE + text
+    let text = `🔔 出勤リマインド\n${name} 先生\n明日 ${label} ${time} の出勤予定です。\nよろしくお願いいたします。`
+    // テスト送信時のみ、頭にテスト注記＋末尾に自動送信の案内を付ける
+    if (test) {
+      text =
+        TEST_NOTICE +
+        text +
+        '\n\n※今後、出勤日の前日19時ごろに、このリマインドを自動でお送りします。'
+    }
     try {
       await sendChannelMessage(channelId, text, botId)
       sent++
