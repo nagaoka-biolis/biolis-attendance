@@ -1,0 +1,283 @@
+<title>シフト希望 提出マニュアル｜BiOLiS CLINIC</title>
+<style>
+  :root{
+    --bg:#f6f4ef; --surface:#ffffff; --ink:#1c2537; --ink-soft:#4a5568;
+    --line:#e6e1d6; --gold:#b0873f; --gold-soft:#f2e9d6;
+    --navy:#1f2a44; --amber-bg:#fdf3d9; --amber-tx:#8a6412;
+    --green-bg:#e2f3ea; --green-tx:#1d7a4d; --gray-bg:#edeef1; --gray-tx:#5c6474;
+    --red:#d64545; --blue:#2f6bd6;
+    --shadow:0 1px 2px rgba(28,37,55,.05),0 8px 24px rgba(28,37,55,.06);
+    --radius:14px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#14171d; --surface:#1e222b; --ink:#eceef2; --ink-soft:#a8b0bf;
+      --line:#2c313c; --gold:#d0a659; --gold-soft:#2a2418;
+      --navy:#dfe4ee; --amber-bg:#332a12; --amber-tx:#e6c874;
+      --green-bg:#16301f; --green-tx:#6fd39a; --gray-bg:#262a33; --gray-tx:#9aa2b1;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#14171d; --surface:#1e222b; --ink:#eceef2; --ink-soft:#a8b0bf;
+    --line:#2c313c; --gold:#d0a659; --gold-soft:#2a2418;
+    --navy:#dfe4ee; --amber-bg:#332a12; --amber-tx:#e6c874;
+    --green-bg:#16301f; --green-tx:#6fd39a; --gray-bg:#262a33; --gray-tx:#9aa2b1;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.35);
+  }
+  :root[data-theme="light"]{
+    --bg:#f6f4ef; --surface:#ffffff; --ink:#1c2537; --ink-soft:#4a5568;
+    --line:#e6e1d6; --gold:#b0873f; --gold-soft:#f2e9d6;
+    --navy:#1f2a44; --amber-bg:#fdf3d9; --amber-tx:#8a6412;
+    --green-bg:#e2f3ea; --green-tx:#1d7a4d; --gray-bg:#edeef1; --gray-tx:#5c6474;
+    --shadow:0 1px 2px rgba(28,37,55,.05),0 8px 24px rgba(28,37,55,.06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0}
+  .wrap{
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic UI","Yu Gothic",Meiryo,system-ui,sans-serif;
+    background:var(--bg); color:var(--ink);
+    line-height:1.75; -webkit-font-smoothing:antialiased;
+    padding:32px 18px 72px;
+  }
+  .sheet{max-width:720px;margin:0 auto}
+
+  /* header */
+  .masthead{
+    background:var(--navy); color:#fff; border-radius:var(--radius);
+    padding:28px 30px; box-shadow:var(--shadow); position:relative; overflow:hidden;
+  }
+  :root[data-theme="dark"] .masthead, :root:not([data-theme="light"]) .masthead{ }
+  @media (prefers-color-scheme:dark){ .masthead{background:#20252f;border:1px solid var(--line)} }
+  :root[data-theme="dark"] .masthead{background:#20252f;border:1px solid var(--line)}
+  :root[data-theme="light"] .masthead{background:var(--navy);border:none}
+  .masthead .kicker{font-size:11px;letter-spacing:.28em;color:var(--gold);margin:0 0 10px;font-weight:700}
+  .masthead h1{font-size:26px;line-height:1.35;margin:0;font-weight:800;text-wrap:balance;color:#fff}
+  :root[data-theme="light"] .masthead h1{color:#fff}
+  .masthead p{margin:12px 0 0;color:#c9cede;font-size:14px}
+  .rule{height:3px;width:44px;background:var(--gold);border-radius:2px;margin:16px 0 0}
+
+  /* intro */
+  .intro{
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    padding:20px 22px; margin-top:18px; box-shadow:var(--shadow); font-size:14.5px;
+  }
+  .intro b{color:var(--gold)}
+  .intro .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .chip{font-size:12px;padding:5px 11px;border-radius:999px;background:var(--gold-soft);color:var(--gold);font-weight:700;border:1px solid transparent}
+
+  /* steps */
+  .steps{margin-top:26px;display:flex;flex-direction:column;gap:18px}
+  .step{
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); overflow:hidden;
+  }
+  .step-head{display:flex;gap:14px;align-items:flex-start;padding:20px 22px 6px}
+  .num{
+    flex:none;width:34px;height:34px;border-radius:10px;background:var(--navy);color:#fff;
+    display:grid;place-items:center;font-weight:800;font-size:16px;
+    font-variant-numeric:tabular-nums;
+  }
+  :root[data-theme="light"] .num{background:var(--navy);color:#fff}
+  @media (prefers-color-scheme:dark){ .num{background:var(--gold);color:#14171d} }
+  :root[data-theme="dark"] .num{background:var(--gold);color:#14171d}
+  :root[data-theme="light"] .num{background:var(--navy);color:#fff}
+  .step-head h2{margin:2px 0 0;font-size:18px;font-weight:800;color:var(--ink);line-height:1.4}
+  .step-body{padding:4px 22px 22px 70px}
+  .step-body p{margin:0 0 6px;font-size:14.5px;color:var(--ink-soft)}
+  .step-body .lead{color:var(--ink)}
+  .hint{margin-top:12px;font-size:13px;color:var(--ink-soft);background:var(--bg);border:1px dashed var(--line);border-radius:10px;padding:10px 13px}
+  .hint b{color:var(--gold)}
+  @media(max-width:540px){ .step-body{padding-left:22px} }
+
+  /* ---- mock UI ---- */
+  .mock{margin:14px 0 2px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+  .mock-bar{background:var(--navy);height:34px;display:flex;align-items:center;gap:7px;padding:0 12px}
+  .mock-bar .dot{width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,.4)}
+  .mock-bar .u{margin-left:auto;font-size:10px;letter-spacing:.2em;color:var(--gold);font-weight:700}
+  .mock-in{padding:16px}
+
+  /* login mock */
+  .fld{margin-bottom:12px}
+  .fld label{display:block;font-size:11px;letter-spacing:.05em;color:var(--ink-soft);margin-bottom:5px;font-weight:700}
+  .fld .box{border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--ink-soft);background:var(--bg)}
+  .btn-gold{background:linear-gradient(180deg,var(--gold),#96702f);color:#fff;text-align:center;border-radius:9px;padding:12px;font-size:13.5px;font-weight:800;letter-spacing:.12em}
+  :root[data-theme="dark"] .btn-gold{color:#14171d}
+
+  /* shift-request card mock */
+  .sr-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .sr-title{font-size:10px;letter-spacing:.22em;color:var(--gray-tx);font-weight:700}
+  .pill{font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px}
+  .pill.todo{background:var(--amber-bg);color:var(--amber-tx)}
+  .pill.done{background:var(--green-bg);color:var(--green-tx)}
+  .pill.lock{background:var(--gray-bg);color:var(--gray-tx)}
+  .sr-note{font-size:11.5px;color:var(--ink-soft);margin-bottom:12px;line-height:1.6}
+  .sr-note b{color:var(--gold)}
+  .row{display:flex;align-items:center;gap:8px;padding:5px 0;flex-wrap:wrap}
+  .date{width:52px;font-size:12px;font-variant-numeric:tabular-nums;color:var(--ink-soft)}
+  .date.sun{color:var(--red)} .date.sat{color:var(--blue)}
+  .sel{border:1px solid var(--line);border-radius:7px;padding:5px 22px 5px 9px;font-size:12px;background:
+      var(--surface) linear-gradient(45deg,transparent 50%,var(--ink-soft) 50%) no-repeat,
+      var(--surface) linear-gradient(135deg,var(--ink-soft) 50%,transparent 50%) no-repeat;
+      background-position:calc(100% - 12px) 50%,calc(100% - 8px) 50%;background-size:4px 4px,4px 4px;color:var(--ink);font-weight:600}
+  .sel.work{border-color:var(--gold);color:var(--gold);font-weight:800}
+  .sel.off{color:var(--gray-tx)}
+  .tlabel{font-size:11px;color:var(--ink-soft)}
+  .time{border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-size:12px;font-variant-numeric:tabular-nums;color:var(--ink);background:var(--surface)}
+  .callout{position:relative}
+  .tag{display:inline-block;font-size:11px;font-weight:800;color:#fff;background:var(--gold);padding:2px 9px;border-radius:999px;margin-left:2px}
+  :root[data-theme="dark"] .tag{color:#14171d}
+  .succ{margin-top:10px;background:var(--green-bg);color:var(--green-tx);border-radius:9px;padding:9px 12px;font-size:12.5px;font-weight:700}
+
+  /* callout arrow annotation */
+  .anno{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12.5px;color:var(--gold);font-weight:700}
+  .anno .arw{font-size:15px}
+
+  /* notes */
+  .notes{margin-top:26px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px 24px}
+  .notes h3{margin:0 0 14px;font-size:15px;letter-spacing:.04em;color:var(--ink);display:flex;align-items:center;gap:9px}
+  .notes h3::before{content:"";width:6px;height:18px;background:var(--gold);border-radius:2px;display:inline-block}
+  .notes ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px}
+  .notes li{font-size:14px;color:var(--ink-soft);padding-left:22px;position:relative;line-height:1.7}
+  .notes li::before{content:"◆";position:absolute;left:0;top:1px;color:var(--gold);font-size:10px}
+  .notes li b{color:var(--ink)}
+
+  .foot{margin-top:26px;text-align:center;font-size:12px;color:var(--ink-soft);line-height:1.8}
+  .foot .brand{color:var(--gold);font-weight:800;letter-spacing:.08em}
+
+  @media print{
+    .wrap{padding:0;background:#fff}
+    .sheet{max-width:100%}
+    .masthead,.intro,.step,.notes{break-inside:avoid}
+    @page{margin:12mm}
+  }
+</style>
+
+<div class="wrap"><div class="sheet">
+
+  <header class="masthead">
+    <p class="kicker">BiOLiS CLINIC ／ 勤怠アプリ</p>
+    <h1>シフト希望の提出マニュアル</h1>
+    <p>ご自身の勤務希望を、アプリから直接ご提出いただけます。<br>所要時間は数分です。以下の手順にそってご入力ください。</p>
+    <div class="rule"></div>
+  </header>
+
+  <div class="intro">
+    アプリで入力した希望は、そのまま<b>シフト表（スプレッドシート）に自動で反映</b>されます。紙やメールでのやり取りは不要です。
+    <div class="meta">
+      <span class="chip">スマホ・PCどちらでもOK</span>
+      <span class="chip">締切前なら何度でも修正可</span>
+      <span class="chip">所要 約3分</span>
+    </div>
+  </div>
+
+  <div class="steps">
+
+    <!-- STEP 1 -->
+    <section class="step">
+      <div class="step-head"><div class="num">1</div><h2>アプリにログインする</h2></div>
+      <div class="step-body">
+        <p class="lead">下記URLを開き、ご自身の<b>メールアドレス</b>と<b>パスワード</b>でログインします。</p>
+        <p>URL：<b style="color:var(--gold)">biolis-attendance.vercel.app</b></p>
+        <div class="mock">
+          <div class="mock-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+          <div class="mock-in" style="max-width:300px;margin:0 auto">
+            <div class="fld"><label>メールアドレス</label><div class="box">example@biolisclinic.com</div></div>
+            <div class="fld"><label>パスワード</label><div class="box">••••••••</div></div>
+            <div class="btn-gold">ログイン</div>
+          </div>
+        </div>
+        <div class="hint">初回ログインのメール・パスワードが不明な場合は、<b>管理者（長岡）</b>までお問い合わせください。</div>
+      </div>
+    </section>
+
+    <!-- STEP 2 -->
+    <section class="step">
+      <div class="step-head"><div class="num">2</div><h2>「シフト希望」の欄を開く</h2></div>
+      <div class="step-body">
+        <p class="lead">ログイン後の画面を下にスクロールすると、<b>「SHIFT REQUEST — シフト希望」</b>という欄があります。</p>
+        <p>右上のバッジで、現在の状態（<span style="color:var(--amber-tx);font-weight:700">未提出</span> / <span style="color:var(--green-tx);font-weight:700">提出済み</span>）がひと目でわかります。</p>
+        <div class="mock">
+          <div class="mock-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="u">DASHBOARD</span></div>
+          <div class="mock-in">
+            <div class="sr-head">
+              <span class="sr-title">SHIFT REQUEST — シフト希望</span>
+              <span class="pill todo">未提出</span>
+            </div>
+            <div class="sr-note"><b style="color:var(--ink)">2026年8月</b>の希望を入力 → 「提出」で反映されます。締切：7/25まで</div>
+            <div class="row"><span class="date">8/1(金)</span><span class="sel">未定</span></div>
+            <div class="row"><span class="date sat">8/2(土)</span><span class="sel">未定</span></div>
+            <div class="row"><span class="date sun">8/3(日)</span><span class="sel">未定</span></div>
+          </div>
+        </div>
+        <div class="hint">「<b>現在、シフト希望の受付はありません</b>」と表示されている場合は、まだ受付が開始されていません。案内があるまでお待ちください。</div>
+      </div>
+    </section>
+
+    <!-- STEP 3 -->
+    <section class="step">
+      <div class="step-head"><div class="num">3</div><h2>日ごとに希望を選ぶ</h2></div>
+      <div class="step-body">
+        <p class="lead">各日付の右のメニューから、希望を選びます。</p>
+        <p>選択肢は <b style="color:var(--gold)">勤務希望</b> ／ <b style="color:var(--gray-tx)">休み希望</b> ／ <b>未定</b> の3つ。<b>勤務希望</b>を選ぶと、<b>出勤・退勤の時刻</b>を入力できます。</p>
+        <div class="mock">
+          <div class="mock-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="u">DASHBOARD</span></div>
+          <div class="mock-in">
+            <div class="row callout">
+              <span class="date sat">8/2(土)</span>
+              <span class="sel work">勤務希望</span>
+              <span class="tlabel">出勤</span><span class="time">10:00</span>
+              <span class="tlabel">退勤</span><span class="time">19:00</span>
+            </div>
+            <div class="row"><span class="date sun">8/3(日)</span><span class="sel off">休み希望</span></div>
+            <div class="row"><span class="date">8/4(月)</span><span class="sel">未定</span></div>
+          </div>
+        </div>
+        <div class="anno"><span class="arw">↑</span>「勤務希望」を選ぶと、出勤・退勤の時刻欄があらわれます</div>
+        <div class="hint"><b>未定</b>のままの日は提出されません。<b>勤務希望・休み希望</b>を入力した日だけが反映されます。</div>
+      </div>
+    </section>
+
+    <!-- STEP 4 -->
+    <section class="step">
+      <div class="step-head"><div class="num">4</div><h2>「シフト希望を提出」を押す</h2></div>
+      <div class="step-body">
+        <p class="lead">入力が終わったら、欄の一番下にある金色のボタンを押します。</p>
+        <div class="mock">
+          <div class="mock-in" style="padding-top:6px">
+            <div class="btn-gold">シフト希望を提出</div>
+            <div class="succ">✓ シフト希望を提出しました（スプレッドシートに反映済み）</div>
+          </div>
+        </div>
+        <p style="margin-top:12px">上のように<b style="color:var(--green-tx)">緑色のメッセージ</b>が出れば提出完了です。バッジも「<span style="color:var(--green-tx);font-weight:700">提出済み</span>」に変わります。</p>
+      </div>
+    </section>
+
+    <!-- STEP 5 -->
+    <section class="step">
+      <div class="step-head"><div class="num">5</div><h2>修正したいとき（締切前）</h2></div>
+      <div class="step-body">
+        <p class="lead">締切前であれば、<b>何度でも入力し直して再提出</b>できます。</p>
+        <p>内容を変更して、もう一度「シフト希望を提出」を押すだけで上書きされます。</p>
+        <div class="hint">締切を過ぎると入力欄がグレーになり、「<b>締切後</b>」と表示されて変更できなくなります。変更が必要な場合は<b>管理者</b>までご連絡ください。</div>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="notes">
+    <h3>ご確認いただきたいこと</h3>
+    <ul>
+      <li><b>締切にご注意ください。</b>受付欄に表示される「締切：◯/◯まで」を過ぎると提出・修正ができません。</li>
+      <li><b>「未定」の日は提出されません。</b>勤務・休みの希望がある日を選んでご入力ください。</li>
+      <li><b>提出内容はシフト表に自動反映されます。</b>別途メールや紙でのご提出は不要です。</li>
+      <li><b>ご不明点は管理者（長岡）まで。</b>ログインできない、締切後に修正したい等、お気軽にご連絡ください。</li>
+    </ul>
+  </div>
+
+  <div class="foot">
+    <span class="brand">BiOLiS CLINIC</span><br>
+    勤怠アプリ シフト希望 提出マニュアル
+  </div>
+
+</div></div>

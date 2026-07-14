@@ -547,6 +547,10 @@ export default function DashboardPage() {
               {reqLocked ? '締切後' : submittedCount > 0 ? '提出済み' : '未提出'}
             </span>
           </div>
+          <a href="/manual/shift-request.html" target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs mb-3" style={{ color: 'var(--gold)' }}>
+            📄 入力方法（マニュアル）を見る
+          </a>
           {!reqTargetMonth ? (
             <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>現在、シフト希望の受付はありません</p>
           ) : (<>
