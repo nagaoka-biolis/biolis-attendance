@@ -273,6 +273,21 @@ export default function DashboardPage() {
     const base = { kind: 'undecided', start: '', end: '' }
     setReqMap(prev => ({ ...prev, [day]: { ...base, ...prev[day], ...patch } }))
   }
+  // 打ち込んだ時刻を HH:MM に整形（例: "1000"→"10:00", "930"→"09:30", "10:0"→"10:00"）
+  const normTimeInput = (s: string): string => {
+    if (!s) return ''
+    if (s.includes(':')) {
+      const [h, m] = s.split(':')
+      const hh = (h || '').replace(/\D/g, '').padStart(2, '0').slice(0, 2)
+      const mm = (m || '').replace(/\D/g, '').padEnd(2, '0').slice(0, 2)
+      return `${hh}:${mm}`
+    }
+    const d = s.replace(/\D/g, '')
+    if (!d) return ''
+    if (d.length <= 2) return `${d.padStart(2, '0')}:00`
+    if (d.length === 3) return `0${d[0]}:${d.slice(1)}`
+    return `${d.slice(0, 2)}:${d.slice(2, 4)}`
+  }
   const handleSubmitRequests = async () => {
     if (!profile || reqLocked || !reqTargetMonth) return
     setReqSaving(true); setReqMsg(null)
@@ -551,6 +566,14 @@ export default function DashboardPage() {
             className="inline-flex items-center gap-1 text-xs mb-3" style={{ color: 'var(--gold)' }}>
             📄 入力方法（マニュアル）を見る
           </a>
+          <datalist id="time-options">
+            {Array.from({ length: 27 }, (_, i) => {
+              const mins = 8 * 60 + i * 30 // 08:00〜21:00 を30分刻み
+              const hh = String(Math.floor(mins / 60)).padStart(2, '0')
+              const mm = String(mins % 60).padStart(2, '0')
+              return <option key={i} value={`${hh}:${mm}`} />
+            })}
+          </datalist>
           {!reqTargetMonth ? (
             <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>現在、シフト希望の受付はありません</p>
           ) : (<>
@@ -575,9 +598,15 @@ export default function DashboardPage() {
                   {v.kind === 'work' && (
                     <>
                       <span className="text-xs" style={{ color: 'var(--gray)' }}>出勤</span>
-                      <input disabled={reqLocked} type="time" value={v.start} onChange={e => setReqDay(day, { start: e.target.value })} className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }} />
+                      <input disabled={reqLocked} type="text" inputMode="numeric" list="time-options" placeholder="10:00" maxLength={5}
+                        value={v.start} onChange={e => setReqDay(day, { start: e.target.value })}
+                        onBlur={e => setReqDay(day, { start: normTimeInput(e.target.value) })}
+                        className="px-2 py-1 rounded border text-xs w-16 text-center" style={{ borderColor: 'var(--gray-light)' }} />
                       <span className="text-xs" style={{ color: 'var(--gray)' }}>退勤</span>
-                      <input disabled={reqLocked} type="time" value={v.end} onChange={e => setReqDay(day, { end: e.target.value })} className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)' }} />
+                      <input disabled={reqLocked} type="text" inputMode="numeric" list="time-options" placeholder="19:00" maxLength={5}
+                        value={v.end} onChange={e => setReqDay(day, { end: e.target.value })}
+                        onBlur={e => setReqDay(day, { end: normTimeInput(e.target.value) })}
+                        className="px-2 py-1 rounded border text-xs w-16 text-center" style={{ borderColor: 'var(--gray-light)' }} />
                     </>
                   )}
                 </div>
