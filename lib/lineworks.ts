@@ -57,7 +57,7 @@ export async function downloadBotAttachment(
   fileId: string
 ): Promise<{ filename: string; content: string }> {
   // 添付DLは bot.read スコープが必要（アプリのOAuth Scopeに bot.read の付与も必須）
-  const token = await getAccessToken('bot bot.read')
+  const token = await getAccessToken('bot.read')
   const res = await fetch(`${API_BASE}/bots/${botId}/attachments/${fileId}`, {
     headers: { Authorization: `Bearer ${token}` },
     redirect: 'follow',
