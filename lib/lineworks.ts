@@ -75,9 +75,9 @@ export async function downloadBotAttachment(
   const loc = res.headers.get('location')
   const cd0 = res.headers.get('content-disposition') || ''
 
-  // 302 → 認証なしでリダイレクト先を取得
+  // 302 → リダイレクト先(ストレージ)にも同じ認証を付けて取得
   if (res.status >= 300 && res.status < 400 && loc) {
-    const res2 = await fetch(loc)
+    const res2 = await fetch(loc, { headers: { Authorization: `Bearer ${token}` } })
     if (!res2.ok) {
       const t = await res2.text().catch(() => '')
       throw new Error(`添付DL(redirect)失敗: ${res2.status} ${t.slice(0, 150)}`)
