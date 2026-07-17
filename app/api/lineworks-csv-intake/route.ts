@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
 
   const content = b?.content
   const fileId = content?.fileId
-  await dbg(admin, `recv type=${b?.type} ctype=${content?.type} fileId=${JSON.stringify(fileId)?.slice(0, 60)}`)
+  await dbg(admin, `FID=${String(fileId)} (ctype=${content?.type})`)
 
   if (content?.type === 'file' && fileId) {
     // 後から手元で検証できるよう fileId を保存（エラーでも残す）
@@ -50,5 +50,5 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  return NextResponse.json({ ok: true, v: 'intake-r2' })
+  return NextResponse.json({ ok: true, v: 'intake-r3' })
 }
