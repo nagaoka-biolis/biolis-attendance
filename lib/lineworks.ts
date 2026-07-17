@@ -51,6 +51,34 @@ async function getAccessToken(): Promise<string> {
   return json.access_token as string
 }
 
+// Botが受け取った添付ファイルをダウンロード（ファイル名＋本文テキストを返す）
+export async function downloadBotAttachment(
+  botId: string,
+  fileId: string
+): Promise<{ filename: string; content: string }> {
+  const token = await getAccessToken()
+  const res = await fetch(`${API_BASE}/bots/${botId}/attachments/${fileId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    redirect: 'follow',
+  })
+  if (!res.ok) {
+    const t = await res.text().catch(() => '')
+    throw new Error(`添付DL失敗: ${res.status} ${t}`)
+  }
+  // ファイル名は Content-Disposition から取得（RFC5987 / 通常形の両対応）
+  const cd = res.headers.get('content-disposition') || ''
+  let filename = ''
+  const star = cd.match(/filename\*=(?:UTF-8'')?([^;]+)/i)
+  const plain = cd.match(/filename="?([^";]+)"?/i)
+  if (star) {
+    try { filename = decodeURIComponent(star[1].replace(/"/g, '')) } catch { filename = star[1] }
+  } else if (plain) {
+    filename = plain[1]
+  }
+  const content = await res.text()
+  return { filename: filename.trim(), content }
+}
+
 // app_settings から任意キーの値を取り出す
 export async function getSetting(key: string): Promise<string | null> {
   const admin = adminClient()
