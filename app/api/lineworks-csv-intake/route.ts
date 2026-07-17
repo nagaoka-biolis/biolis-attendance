@@ -12,8 +12,17 @@ export async function POST(req: NextRequest) {
   try { body = await req.json() } catch { /* noop */ }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const b = body as any
+
+  // デバッグ: 届いたcallbackの構造を必ず記録（本文の中身は載せない）
+  try {
+    const admin0 = adminClient()
+    const dbg = JSON.stringify({ type: b?.type, contentType: b?.content?.type, keys: b ? Object.keys(b) : null, contentKeys: b?.content ? Object.keys(b.content) : null }).slice(0, 400)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (admin0.from('app_settings') as any).upsert({ key: 'csv_intake_debug', value: `${new Date().toISOString()} ${dbg}` })
+  } catch { /* noop */ }
+
   const content = b?.content
-  const fileId = content?.fileId
+  const fileId = content?.fileId ?? content?.fileId?.toString?.()
 
   if (content?.type === 'file' && fileId) {
     try {
