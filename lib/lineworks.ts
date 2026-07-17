@@ -30,14 +30,14 @@ function buildAssertion(): string {
   return `${signingInput}.${signature}`
 }
 
-// access token を取得（scope=bot）
-async function getAccessToken(): Promise<string> {
+// access token を取得（既定 scope=bot。添付DLは bot.read が必要なため scope指定可）
+async function getAccessToken(scope = 'bot'): Promise<string> {
   const body = new URLSearchParams({
     assertion: buildAssertion(),
     grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
     client_id: process.env.LINEWORKS_CLIENT_ID!,
     client_secret: process.env.LINEWORKS_CLIENT_SECRET!,
-    scope: 'bot',
+    scope,
   })
   const res = await fetch(TOKEN_URL, {
     method: 'POST',
@@ -56,7 +56,8 @@ export async function downloadBotAttachment(
   botId: string,
   fileId: string
 ): Promise<{ filename: string; content: string }> {
-  const token = await getAccessToken()
+  // 添付DLは bot.read スコープが必要（アプリのOAuth Scopeに bot.read の付与も必須）
+  const token = await getAccessToken('bot bot.read')
   const res = await fetch(`${API_BASE}/bots/${botId}/attachments/${fileId}`, {
     headers: { Authorization: `Bearer ${token}` },
     redirect: 'follow',
