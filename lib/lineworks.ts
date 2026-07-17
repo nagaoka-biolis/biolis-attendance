@@ -58,26 +58,41 @@ export async function downloadBotAttachment(
 ): Promise<{ filename: string; content: string }> {
   // 添付DLは bot.read スコープが必要（アプリのOAuth Scopeに bot.read の付与も必須）
   const token = await getAccessToken('bot.read')
+  // リダイレクトは手動処理（リダイレクト先にBearerを付けると弾かれるため）
   const res = await fetch(`${API_BASE}/bots/${botId}/attachments/${fileId}`, {
     headers: { Authorization: `Bearer ${token}` },
-    redirect: 'follow',
+    redirect: 'manual',
   })
-  if (!res.ok) {
-    const t = await res.text().catch(() => '')
-    throw new Error(`添付DL失敗: ${res.status} ${t}`)
+
+  const parseName = (cd: string): string => {
+    const star = cd.match(/filename\*=(?:UTF-8'')?([^;]+)/i)
+    const plain = cd.match(/filename="?([^";]+)"?/i)
+    if (star) { try { return decodeURIComponent(star[1].replace(/"/g, '')).trim() } catch { return star[1].trim() } }
+    if (plain) return plain[1].trim()
+    return ''
   }
-  // ファイル名は Content-Disposition から取得（RFC5987 / 通常形の両対応）
-  const cd = res.headers.get('content-disposition') || ''
-  let filename = ''
-  const star = cd.match(/filename\*=(?:UTF-8'')?([^;]+)/i)
-  const plain = cd.match(/filename="?([^";]+)"?/i)
-  if (star) {
-    try { filename = decodeURIComponent(star[1].replace(/"/g, '')) } catch { filename = star[1] }
-  } else if (plain) {
-    filename = plain[1]
+
+  const loc = res.headers.get('location')
+  const cd0 = res.headers.get('content-disposition') || ''
+
+  // 302 → 認証なしでリダイレクト先を取得
+  if (res.status >= 300 && res.status < 400 && loc) {
+    const res2 = await fetch(loc)
+    if (!res2.ok) {
+      const t = await res2.text().catch(() => '')
+      throw new Error(`添付DL(redirect)失敗: ${res2.status} ${t.slice(0, 150)}`)
+    }
+    const filename = parseName(res2.headers.get('content-disposition') || cd0)
+    return { filename, content: await res2.text() }
   }
-  const content = await res.text()
-  return { filename: filename.trim(), content }
+
+  // 200直接
+  if (res.status === 200) {
+    return { filename: parseName(cd0), content: await res.text() }
+  }
+
+  const body = await res.text().catch(() => '')
+  throw new Error(`添付DL失敗: status=${res.status} loc=${loc ? 'yes' : 'no'} ${body.slice(0, 150)}`)
 }
 
 // app_settings から任意キーの値を取り出す
