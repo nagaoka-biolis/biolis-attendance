@@ -50,5 +50,5 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, v: 'intake-r2' })
 }
