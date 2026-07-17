@@ -22,6 +22,9 @@ export async function POST(req: NextRequest) {
   await dbg(admin, `recv type=${b?.type} ctype=${content?.type} fileId=${JSON.stringify(fileId)?.slice(0, 60)}`)
 
   if (content?.type === 'file' && fileId) {
+    // 後から手元で検証できるよう fileId を保存（エラーでも残す）
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (admin.from('app_settings') as any).upsert({ key: 'csv_last_fileId', value: `${String(fileId)} @ ${new Date().toISOString()}` }).catch(() => {})
     try {
       const botId = process.env.LINEWORKS_CSV_BOT_ID!
       await dbg(admin, `downloading botId=${botId} fileId=${String(fileId).slice(0, 40)}`)
