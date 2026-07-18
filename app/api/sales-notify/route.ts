@@ -27,10 +27,16 @@ function parseCSV(text: string): string[][] {
 const num = (s: string | undefined) => Number(String(s ?? '').replace(/[",]/g, '')) || 0
 const yen = (n: number) => n.toLocaleString('ja-JP') + '円'
 
+// 対象営業日(JST)。このcronは23:30発火想定だが、Vercel Hobbyの遅延で
+// 0時をまたいで翌0時過ぎに発火することがある。その場合でも「意図した営業日」
+// (=昨日ではなく発火が本来狙っていた当日)を返すため、現在時刻から8時間戻して
+// からJST日付を採る。23:30〜翌朝7:30頃までの遅延は全て正しい営業日にマップされ、
+// 月末・年末の繰り上がりも自動で正しくなる。
 function todayJST(): { ymd: string; ym: string; day: number; label: string } {
+  const shifted = new Date(Date.now() - 8 * 60 * 60 * 1000)
   const parts = new Intl.DateTimeFormat('ja-JP', {
     timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short',
-  }).formatToParts(new Date())
+  }).formatToParts(shifted)
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? ''
   const y = get('year'), m = get('month'), d = get('day'), w = get('weekday')
   return { ymd: `${y}${m}${d}`, ym: `${y}${m}`, day: Number(d), label: `${Number(m)}月${Number(d)}日(${w})` }
