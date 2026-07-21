@@ -220,6 +220,7 @@ export default function DashboardPage() {
     // 位置情報取得
     let lat: number | null = null
     let lng: number | null = null
+    let distance: number | null = null
     let isValid = false
 
     try {
@@ -229,6 +230,7 @@ export default function DashboardPage() {
       lat = pos.coords.latitude
       lng = pos.coords.longitude
       const dist = getDistance(lat, lng, CLINIC_LAT, CLINIC_LNG)
+      distance = dist
       isValid = dist <= ALLOWED_RADIUS_M
 
       if (!isValid) {
@@ -261,7 +263,7 @@ export default function DashboardPage() {
         void fetch('/api/lineworks-notify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-          body: JSON.stringify({ type, isValid }),
+          body: JSON.stringify({ type, isValid, lat, lng, distance }),
         }).catch(() => { /* 通知失敗は無視 */ })
       } catch { /* noop */ }
     }

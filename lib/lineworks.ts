@@ -142,10 +142,37 @@ export async function notifyKintai(text: string): Promise<boolean> {
 export type ClockType = 'clock_in' | 'clock_out' | 'break_start' | 'break_end'
 
 // 打刻内容を整形して勤怠管理グループへ通知
+// 座標→住所（無料の OpenStreetMap Nominatim 逆ジオコーディング）。
+// 圏外打刻の「どこから打刻したか」を通知に出す用。圏外打刻は頻度が低く
+// 無料枠で十分。失敗時は null（呼び出し側で座標＋地図リンクにフォールバック）。
+async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&zoom=18&accept-language=ja&lat=${lat}&lon=${lng}`
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'BiOLiS-Attendance/1.0 (https://biolis-attendance.vercel.app)' },
+    })
+    if (!res.ok) return null
+    const j = (await res.json()) as { display_name?: string; address?: Record<string, string> }
+    const a = j.address ?? {}
+    // 日本の住所を「都道府県 市区 町名 番地」の順に並べ直す（display_nameは小→大で読みにくい）
+    const parts = [
+      a.province ?? a.state,
+      a.city ?? a.county ?? a.town ?? a.village ?? a.ward,
+      a.suburb ?? a.neighbourhood ?? a.quarter,
+      a.road,
+      a.house_number,
+    ].filter(Boolean)
+    return parts.length ? parts.join(' ') : (j.display_name ?? null)
+  } catch {
+    return null
+  }
+}
+
 export async function notifyClock(
   name: string,
   type: ClockType,
-  isValid: boolean
+  isValid: boolean,
+  loc?: { lat: number | null; lng: number | null; distance?: number | null }
 ): Promise<boolean> {
   const label = {
     clock_in: '🟢 出勤',
@@ -162,6 +189,15 @@ export async function notifyClock(
     minute: '2-digit',
   })
   let text = `${label}  ${name}\n🕐 ${at}`
-  if (!isValid) text += '\n⚠️ クリニック外からの打刻（要確認）'
+  if (!isValid) {
+    text += '\n⚠️ クリニック外からの打刻（要確認）'
+    // 圏外のときは「どこから打刻したか」を住所＋地図リンクで補足
+    if (loc?.lat != null && loc?.lng != null) {
+      const addr = await reverseGeocode(loc.lat, loc.lng)
+      if (addr) text += `\n📍 ${addr}`
+      if (loc.distance != null) text += `\n（クリニックから約${Math.round(loc.distance)}m）`
+      text += `\n🗺 https://maps.google.com/?q=${loc.lat},${loc.lng}`
+    }
+  }
   return notifyKintai(text)
 }

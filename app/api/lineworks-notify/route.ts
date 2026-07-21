@@ -26,10 +26,16 @@ export async function POST(req: NextRequest) {
 
   let type: ClockType | undefined
   let isValid = true
+  let lat: number | null = null
+  let lng: number | null = null
+  let distance: number | null = null
   try {
     const body = await req.json()
     type = body?.type
     isValid = body?.isValid !== false
+    lat = typeof body?.lat === 'number' ? body.lat : null
+    lng = typeof body?.lng === 'number' ? body.lng : null
+    distance = typeof body?.distance === 'number' ? body.distance : null
   } catch {
     /* noop */
   }
@@ -47,7 +53,7 @@ export async function POST(req: NextRequest) {
   const name = (me as { name?: string } | null)?.name ?? 'スタッフ'
 
   try {
-    const sent = await notifyClock(name, type, isValid)
+    const sent = await notifyClock(name, type, isValid, { lat, lng, distance })
     // channelId未保存でも打刻自体は成功させたいので ok:true を返す（sentで判別可能）
     return NextResponse.json({ ok: true, sent })
   } catch (e) {
