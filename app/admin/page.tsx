@@ -581,7 +581,12 @@ export default function AdminPage() {
       }
     }
 
-    setSummaries(Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date)))
+    // 最初の打刻時刻(実時刻)で昇順ソート。日付は正しい時系列順になり、
+    // 同じ日の中は「その日に最初に打刻した順」を維持する。
+    // ※以前は日付を文字列比較していたため 7/10〜7/19 が 7/2 より前に来るズレがあった。
+    setSummaries(Array.from(map.values()).sort(
+      (a, b) => new Date(a.records[0].timestamp).getTime() - new Date(b.records[0].timestamp).getTime()
+    ))
     setLoading(false)
   }, [selectedMonth])
 
