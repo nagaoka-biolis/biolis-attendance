@@ -689,7 +689,11 @@ export default function DashboardPage() {
 
         {/* 交通費申請 */}
         <div className="card p-6">
-          <div className="text-xs tracking-[0.2em] mb-4" style={{ color: 'var(--gray)' }}>TRANSPORT EXPENSE — 交通費申請</div>
+          <div className="text-xs tracking-[0.2em] mb-2" style={{ color: 'var(--gray)' }}>TRANSPORT EXPENSE — 交通費申請</div>
+          <a href="/manual/expense-request.html" target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs mb-3" style={{ color: 'var(--gold)' }}>
+            📄 入力方法（マニュアル）を見る
+          </a>
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <span className="w-16 text-xs shrink-0" style={{ color: 'var(--gray)' }}>利用日</span>
