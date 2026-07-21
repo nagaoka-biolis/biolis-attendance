@@ -172,7 +172,8 @@ export async function notifyClock(
   name: string,
   type: ClockType,
   isValid: boolean,
-  loc?: { lat: number | null; lng: number | null; distance?: number | null }
+  loc?: { lat: number | null; lng: number | null; distance?: number | null },
+  test = false
 ): Promise<boolean> {
   const label = {
     clock_in: '🟢 出勤',
@@ -189,6 +190,7 @@ export async function notifyClock(
     minute: '2-digit',
   })
   let text = `${label}  ${name}\n🕐 ${at}`
+  if (test) text = '🧪【テスト送信・ご対応不要】圏外打刻通知の動作確認です。\n\n' + text
   if (!isValid) {
     text += '\n⚠️ クリニック外からの打刻（要確認）'
     // 圏外のときは「どこから打刻したか」を住所＋地図リンクで補足

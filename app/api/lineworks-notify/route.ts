@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
   let lat: number | null = null
   let lng: number | null = null
   let distance: number | null = null
+  let test = false
   try {
     const body = await req.json()
     type = body?.type
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
     lat = typeof body?.lat === 'number' ? body.lat : null
     lng = typeof body?.lng === 'number' ? body.lng : null
     distance = typeof body?.distance === 'number' ? body.distance : null
+    test = body?.test === true
   } catch {
     /* noop */
   }
@@ -53,7 +55,7 @@ export async function POST(req: NextRequest) {
   const name = (me as { name?: string } | null)?.name ?? 'スタッフ'
 
   try {
-    const sent = await notifyClock(name, type, isValid, { lat, lng, distance })
+    const sent = await notifyClock(name, type, isValid, { lat, lng, distance }, test)
     // channelId未保存でも打刻自体は成功させたいので ok:true を返す（sentで判別可能）
     return NextResponse.json({ ok: true, sent })
   } catch (e) {
