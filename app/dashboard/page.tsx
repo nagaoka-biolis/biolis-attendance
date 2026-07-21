@@ -27,6 +27,20 @@ function formatDate(date: Date) {
   return date.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })
 }
 
+type MyExpense = {
+  id: string
+  date: string
+  amount: number
+  category: string
+  from_place: string | null
+  to_place: string | null
+  transport: string | null
+  purpose: string | null
+  receipt_url: string | null
+  status: string
+  reject_reason: string | null
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -57,6 +71,12 @@ export default function DashboardPage() {
   const [reqDeadline, setReqDeadline] = useState<string | null>(null)
   const [reqMsg, setReqMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [reqSaving, setReqSaving] = useState(false)
+  // 交通費申請
+  const [myExpenses, setMyExpenses] = useState<MyExpense[]>([])
+  const [expForm, setExpForm] = useState({ date: '', amount: '', from_place: '', to_place: '', transport: '電車', purpose: '' })
+  const [expFile, setExpFile] = useState<File | null>(null)
+  const [expSaving, setExpSaving] = useState(false)
+  const [expMsg, setExpMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
 
   const fetchRequests = useCallback(async (userId: string, month: string) => {
     const [year, mon] = month.split('-').map(Number)
@@ -176,6 +196,14 @@ export default function DashboardPage() {
     return () => { active = false }
   }, [profile, fetchRequests])
 
+  const fetchMyExpenses = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return
+    const res = await fetch('/api/expense', { headers: { Authorization: `Bearer ${session.access_token}` } })
+    const j = await res.json().catch(() => null)
+    if (j?.ok) setMyExpenses(j.rows as MyExpense[])
+  }, [])
+
   useEffect(() => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession()
@@ -190,9 +218,43 @@ export default function DashboardPage() {
       setProfile(p)
       await fetchTodayRecords(user.id)
       await fetchMyMessages(user.id)
+      await fetchMyExpenses()
     }
     init()
-  }, [router, fetchTodayRecords, fetchMyMessages])
+  }, [router, fetchTodayRecords, fetchMyMessages, fetchMyExpenses])
+
+  const handleSubmitExpense = async () => {
+    if (!profile) return
+    if (!expForm.date) { setExpMsg({ text: '利用日を入力してください', type: 'error' }); return }
+    if (!expForm.amount || Number(expForm.amount) <= 0) { setExpMsg({ text: '金額を入力してください', type: 'error' }); return }
+    setExpSaving(true); setExpMsg(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token ?? ''
+      let receipt_url: string | null = null
+      if (expFile) {
+        const fd = new FormData(); fd.append('file', expFile)
+        const up = await fetch('/api/expense/receipt', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
+        const uj = await up.json().catch(() => null)
+        if (!uj?.ok) { setExpMsg({ text: uj?.error || '領収書のアップロードに失敗しました', type: 'error' }); setExpSaving(false); return }
+        receipt_url = uj.url
+      }
+      const res = await fetch('/api/expense', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ...expForm, amount: Number(expForm.amount), receipt_url }),
+      })
+      const j = await res.json().catch(() => null)
+      if (!j?.ok) { setExpMsg({ text: j?.error || '申請に失敗しました', type: 'error' }); setExpSaving(false); return }
+      setExpMsg({ text: '交通費を申請しました（管理者の承認待ち）', type: 'success' })
+      setExpForm({ date: '', amount: '', from_place: '', to_place: '', transport: '電車', purpose: '' })
+      setExpFile(null)
+      await fetchMyExpenses()
+    } catch {
+      setExpMsg({ text: '申請に失敗しました', type: 'error' })
+    }
+    setExpSaving(false)
+  }
 
   const handleSendMessage = async () => {
     if (!profile || !msgBody.trim()) return
@@ -623,6 +685,87 @@ export default function DashboardPage() {
             {reqSaving ? '提出中...' : 'シフト希望を提出'}
           </button>
           </>)}
+        </div>
+
+        {/* 交通費申請 */}
+        <div className="card p-6">
+          <div className="text-xs tracking-[0.2em] mb-4" style={{ color: 'var(--gray)' }}>TRANSPORT EXPENSE — 交通費申請</div>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-16 text-xs shrink-0" style={{ color: 'var(--gray)' }}>利用日</span>
+              <input type="date" value={expForm.date} onChange={e => setExpForm({ ...expForm, date: e.target.value })}
+                className="px-2 py-1 rounded border text-xs flex-1" style={{ borderColor: 'var(--gray-light)', color: 'var(--navy)' }} />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-16 text-xs shrink-0" style={{ color: 'var(--gray)' }}>金額</span>
+              <input inputMode="numeric" placeholder="1000" value={expForm.amount}
+                onChange={e => setExpForm({ ...expForm, amount: e.target.value.replace(/[^0-9]/g, '') })}
+                className="px-2 py-1 rounded border text-xs w-28 text-right" style={{ borderColor: 'var(--gray-light)', color: 'var(--navy)' }} />
+              <span className="text-xs" style={{ color: 'var(--gray)' }}>円</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-16 text-xs shrink-0" style={{ color: 'var(--gray)' }}>経路</span>
+              <input placeholder="出発（例：自宅）" value={expForm.from_place} onChange={e => setExpForm({ ...expForm, from_place: e.target.value })}
+                className="px-2 py-1 rounded border text-xs flex-1 min-w-0" style={{ borderColor: 'var(--gray-light)', color: 'var(--navy)' }} />
+              <span className="text-xs" style={{ color: 'var(--gray)' }}>→</span>
+              <input placeholder="到着（例：クリニック）" value={expForm.to_place} onChange={e => setExpForm({ ...expForm, to_place: e.target.value })}
+                className="px-2 py-1 rounded border text-xs flex-1 min-w-0" style={{ borderColor: 'var(--gray-light)', color: 'var(--navy)' }} />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-16 text-xs shrink-0" style={{ color: 'var(--gray)' }}>交通手段</span>
+              <select value={expForm.transport} onChange={e => setExpForm({ ...expForm, transport: e.target.value })}
+                className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)', background: '#fff', color: 'var(--navy)' }}>
+                <option value="電車">電車</option>
+                <option value="バス">バス</option>
+                <option value="タクシー">タクシー</option>
+                <option value="自家用車">自家用車</option>
+                <option value="その他">その他</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-16 text-xs shrink-0" style={{ color: 'var(--gray)' }}>目的</span>
+              <input placeholder="例：出勤 / 往診" value={expForm.purpose} onChange={e => setExpForm({ ...expForm, purpose: e.target.value })}
+                className="px-2 py-1 rounded border text-xs flex-1" style={{ borderColor: 'var(--gray-light)', color: 'var(--navy)' }} />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-16 text-xs shrink-0" style={{ color: 'var(--gray)' }}>領収書</span>
+              <input type="file" accept="image/*" capture="environment" onChange={e => setExpFile(e.target.files?.[0] ?? null)}
+                className="text-xs flex-1 min-w-0" style={{ color: 'var(--navy)' }} />
+            </div>
+          </div>
+          {expMsg && (
+            <div className={`mt-3 text-sm rounded-lg px-3 py-2 ${expMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{expMsg.text}</div>
+          )}
+          <button onClick={handleSubmitExpense} disabled={expSaving}
+            className="btn-gold w-full py-3 rounded-lg text-sm tracking-[0.15em] mt-3">
+            {expSaving ? '申請中...' : '交通費を申請'}
+          </button>
+
+          {myExpenses.length > 0 && (
+            <>
+              <div className="divider-gold mt-5"></div>
+              <div className="text-xs tracking-wider mt-3 mb-2" style={{ color: 'var(--gray)' }}>申請履歴</div>
+              <div className="space-y-1">
+                {myExpenses.map(e => (
+                  <div key={e.id} className="flex items-center gap-2 text-sm py-1.5 border-b border-gray-50">
+                    <span className="text-xs w-12 shrink-0" style={{ color: 'var(--gray)' }}>
+                      {new Date(e.date).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })}
+                    </span>
+                    <span className="flex-1 min-w-0 truncate" style={{ color: 'var(--navy)' }}>
+                      {e.amount.toLocaleString()}円
+                      <span className="text-xs ml-1" style={{ color: 'var(--gray)' }}>
+                        {e.transport ?? ''}{e.from_place ? ` ${e.from_place}→${e.to_place ?? ''}` : ''}
+                      </span>
+                    </span>
+                    {e.receipt_url && <a href={e.receipt_url} target="_blank" rel="noopener noreferrer" className="text-xs shrink-0" style={{ color: 'var(--gold)' }}>📷</a>}
+                    <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${e.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : e.status === 'rejected' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>
+                      {e.status === 'approved' ? '承認' : e.status === 'rejected' ? '却下' : '申請中'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         {/* 勤怠履歴 */}

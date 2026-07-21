@@ -46,21 +46,30 @@ export default function AdminPage() {
   const [newStaff, setNewStaff] = useState({ name: '', email: '', password: '', role: 'staff' })
   const [staffSaving, setStaffSaving] = useState(false)
   const [staffMsg, setStaffMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
-  const [tab, setTab] = useState<'attendance' | 'shift' | 'staff' | 'messages' | 'payroll'>('attendance')
+  const [tab, setTab] = useState<'attendance' | 'shift' | 'staff' | 'messages' | 'payroll' | 'expense'>('attendance')
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [payroll, setPayroll] = useState<any>(null)
   const [payrollLoading, setPayrollLoading] = useState(false)
   const [payrollOpen, setPayrollOpen] = useState<Set<string>>(new Set())
   const togglePayroll = (id: string) => setPayrollOpen(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const [payrollTarget, setPayrollTarget] = useState('summary')  // 'summary' or user_id
+  // 経費（交通費申請）
+  type AdminExpense = {
+    id: string; user_id: string; name: string; date: string; amount: number; category: string
+    from_place: string | null; to_place: string | null; transport: string | null; purpose: string | null
+    receipt_url: string | null; status: string; reject_reason: string | null
+  }
+  const [expenses, setExpenses] = useState<AdminExpense[]>([])
+  const [expLoading, setExpLoading] = useState(false)
+  const [expPending, setExpPending] = useState(0)
 
   const fmtD = (d: string) => new Date(d).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const summaryRows = (): (string | number)[][] => {
-    const rows: (string | number)[][] = [['先生', '雇用(対象外)', '委託(税込)', '内消費税', '総合計']]
+    const rows: (string | number)[][] = [['先生', '雇用(対象外)', '委託(税込)', '内消費税', '交通費(実費)', '総合計']]
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const r of payroll.results) rows.push([r.name, r.employTotal, r.contractTotal, r.contractTax, r.total])
-    rows.push(['合計', payroll.grand.employ, payroll.grand.contract, payroll.grand.tax, payroll.grand.total])
+    for (const r of payroll.results) rows.push([r.name, r.employTotal, r.contractTotal, r.contractTax, r.transport ?? 0, r.total])
+    rows.push(['合計', payroll.grand.employ, payroll.grand.contract, payroll.grand.tax, payroll.grand.transport ?? 0, payroll.grand.total])
     return rows
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -72,6 +81,7 @@ export default function AdminPage() {
     rows.push(['雇用 小計', '', r.employTotal, '', ''])
     rows.push(['委託 小計(税込)', '', '', r.contractTotal, ''])
     rows.push(['内消費税(委託)', '', '', r.contractTax, ''])
+    if (r.transport > 0) rows.push(['交通費(実費)', '', '', r.transport, ''])
     rows.push(['総合計', '', '', '', r.total])
     if (r.note) rows.push([`別途・注意: ${r.note}`])
     return rows
@@ -94,8 +104,8 @@ export default function AdminPage() {
     let html = ''
     if (payrollTarget === 'summary') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const body = payroll.results.map((r: any) => `<tr><td ${tdl}>${r.name}</td><td ${td}>${r.employTotal.toLocaleString()}</td><td ${td}>${r.contractTotal.toLocaleString()}</td><td ${td}>${r.contractTax.toLocaleString()}</td><td ${td}><b>${r.total.toLocaleString()}</b></td></tr>`).join('')
-      html = `<h2>BiOLiS 報酬サマリー（${payroll.month}）</h2>${note}<table style="border-collapse:collapse;width:100%"><tr><th ${th.replace('right', 'left')}>先生</th><th ${th}>雇用(対象外)</th><th ${th}>委託(税込)</th><th ${th}>内消費税</th><th ${th}>総合計</th></tr>${body}<tr><td ${tdl}><b>合計</b></td><td ${td}><b>${payroll.grand.employ.toLocaleString()}</b></td><td ${td}><b>${payroll.grand.contract.toLocaleString()}</b></td><td ${td}>${payroll.grand.tax.toLocaleString()}</td><td ${td}><b>${payroll.grand.total.toLocaleString()}</b></td></tr></table>`
+      const body = payroll.results.map((r: any) => `<tr><td ${tdl}>${r.name}</td><td ${td}>${r.employTotal.toLocaleString()}</td><td ${td}>${r.contractTotal.toLocaleString()}</td><td ${td}>${r.contractTax.toLocaleString()}</td><td ${td}>${(r.transport ?? 0).toLocaleString()}</td><td ${td}><b>${r.total.toLocaleString()}</b></td></tr>`).join('')
+      html = `<h2>BiOLiS 報酬サマリー（${payroll.month}）</h2>${note}<table style="border-collapse:collapse;width:100%"><tr><th ${th.replace('right', 'left')}>先生</th><th ${th}>雇用(対象外)</th><th ${th}>委託(税込)</th><th ${th}>内消費税</th><th ${th}>交通費(実費)</th><th ${th}>総合計</th></tr>${body}<tr><td ${tdl}><b>合計</b></td><td ${td}><b>${payroll.grand.employ.toLocaleString()}</b></td><td ${td}><b>${payroll.grand.contract.toLocaleString()}</b></td><td ${td}>${payroll.grand.tax.toLocaleString()}</td><td ${td}>${(payroll.grand.transport ?? 0).toLocaleString()}</td><td ${td}><b>${payroll.grand.total.toLocaleString()}</b></td></tr></table>`
     } else {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const r = payroll.results.find((x: any) => x.user_id === payrollTarget)
@@ -103,7 +113,8 @@ export default function AdminPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = r.days.map((d: any) => `<tr><td ${tdl}>${fmtD(d.date)}</td><td ${tdl}>${d.time || ''}</td><td ${td}>${d.employ ? d.employ.toLocaleString() : ''}</td><td ${td}>${d.contract ? d.contract.toLocaleString() : ''}</td></tr>`).join('')
       const allowRow = r.allowance > 0 ? `<tr><td ${tdl} colspan="2">管理医師手当(委託)</td><td ${td}></td><td ${td}>${r.allowance.toLocaleString()}</td></tr>` : ''
-      html = `<h2>BiOLiS 報酬明細 — ${r.name}（${payroll.month}）</h2>${note}<p style="font-size:12px;color:#555">稼働${r.daysCount}日${r.contractorName ? ' ／ 委託先：' + r.contractorName : ''}</p><table style="border-collapse:collapse;width:100%"><tr><th ${th.replace('right', 'left')}>日付</th><th ${th.replace('right', 'left')}>時間</th><th ${th}>雇用(対象外)</th><th ${th}>委託(税込)</th></tr>${body}${allowRow}<tr><td ${tdl} colspan="2"><b>小計</b></td><td ${td}><b>${r.employTotal.toLocaleString()}</b></td><td ${td}><b>${r.contractTotal.toLocaleString()}</b></td></tr><tr><td ${tdl} colspan="3">内消費税(委託)</td><td ${td}>${r.contractTax.toLocaleString()}</td></tr><tr><td ${tdl} colspan="3"><b>総合計</b></td><td ${td}><b>${r.total.toLocaleString()}</b></td></tr></table>${r.note ? `<p style="color:#c00;font-size:11px">別途・注意：${r.note}</p>` : ''}`
+      const transRow = r.transport > 0 ? `<tr><td ${tdl} colspan="3">交通費(実費)</td><td ${td}>${r.transport.toLocaleString()}</td></tr>` : ''
+      html = `<h2>BiOLiS 報酬明細 — ${r.name}（${payroll.month}）</h2>${note}<p style="font-size:12px;color:#555">稼働${r.daysCount}日${r.contractorName ? ' ／ 委託先：' + r.contractorName : ''}</p><table style="border-collapse:collapse;width:100%"><tr><th ${th.replace('right', 'left')}>日付</th><th ${th.replace('right', 'left')}>時間</th><th ${th}>雇用(対象外)</th><th ${th}>委託(税込)</th></tr>${body}${allowRow}<tr><td ${tdl} colspan="2"><b>小計</b></td><td ${td}><b>${r.employTotal.toLocaleString()}</b></td><td ${td}><b>${r.contractTotal.toLocaleString()}</b></td></tr><tr><td ${tdl} colspan="3">内消費税(委託)</td><td ${td}>${r.contractTax.toLocaleString()}</td></tr>${transRow}<tr><td ${tdl} colspan="3"><b>総合計</b></td><td ${td}><b>${r.total.toLocaleString()}</b></td></tr></table>${r.note ? `<p style="color:#c00;font-size:11px">別途・注意：${r.note}</p>` : ''}`
     }
     const w = window.open('', '_blank')
     if (!w) return
@@ -123,6 +134,51 @@ export default function AdminPage() {
     setPayroll(res.ok ? r : { error: r.error })
     setPayrollLoading(false)
   }, [])
+
+  const fetchExpenses = useCallback(async (month: string) => {
+    setExpLoading(true)
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch(`/api/expense?month=${month}`, { headers: { Authorization: `Bearer ${session?.access_token ?? ''}` } })
+    const j = await res.json().catch(() => null)
+    setExpenses(j?.ok ? (j.rows as AdminExpense[]) : [])
+    setExpLoading(false)
+  }, [])
+
+  const fetchExpPending = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/expense?status=pending', { headers: { Authorization: `Bearer ${session?.access_token ?? ''}` } })
+    const j = await res.json().catch(() => null)
+    setExpPending(j?.ok ? (j.rows as AdminExpense[]).length : 0)
+  }, [])
+
+  const reviewExpense = async (id: string, action: 'approve' | 'reject') => {
+    let reason: string | undefined
+    if (action === 'reject') {
+      const r = window.prompt('却下理由（任意・申請者に表示されます）', '')
+      if (r === null) return // キャンセル
+      reason = r
+    }
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/expense/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+      body: JSON.stringify({ id, action, reason }),
+    })
+    if (res.ok) { await fetchExpenses(selectedMonth); await fetchExpPending() }
+  }
+
+  const exportExpenseCSV = () => {
+    if (!expenses.length) return
+    const label = (s: string) => s === 'approved' ? '承認' : s === 'rejected' ? '却下' : '申請中'
+    const rows: (string | number)[][] = [['申請者', '利用日', '金額', '費目', '出発', '到着', '交通手段', '目的', '状態']]
+    for (const e of [...expenses].sort((a, b) => a.name.localeCompare(b.name, 'ja') || a.date.localeCompare(b.date))) {
+      rows.push([e.name, e.date, e.amount, e.category, e.from_place ?? '', e.to_place ?? '', e.transport ?? '', e.purpose ?? '', label(e.status)])
+    }
+    const approved = expenses.filter(e => e.status === 'approved').reduce((s, e) => s + e.amount, 0)
+    rows.push([])
+    rows.push(['承認済み合計', '', approved, '', '', '', '', '', ''])
+    downloadCSV(`交通費_${selectedMonth}.csv`, rows)
+  }
   const [staffList, setStaffList] = useState<Profile[]>([])
   const [shiftStaffId, setShiftStaffId] = useState('')
   const [adminShifts, setAdminShifts] = useState<Shift[]>([])
@@ -561,11 +617,14 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (tab === 'payroll') fetchPayroll(selectedMonth)
-  }, [tab, selectedMonth, fetchPayroll])
+    if (tab === 'expense') fetchExpenses(selectedMonth)
+  }, [tab, selectedMonth, fetchPayroll, fetchExpenses])
 
   useEffect(() => {
     if (tab === 'shift') loadAcceptance()
   }, [tab, loadAcceptance])
+
+  useEffect(() => { fetchExpPending() }, [fetchExpPending])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -626,10 +685,11 @@ export default function AdminPage() {
             ['attendance', '勤怠'],
             ['shift', 'シフト'],
             ['payroll', '報酬'],
+            ['expense', '経費'],
             ['staff', 'スタッフ管理'],
             ['messages', '連絡'],
           ] as const).map(([key, label]) => {
-            const unresolved = key === 'messages' ? messages.filter(m => !m.resolved).length : 0
+            const unresolved = key === 'messages' ? messages.filter(m => !m.resolved).length : key === 'expense' ? expPending : 0
             return (
               <button
                 key={key}
@@ -723,6 +783,7 @@ export default function AdminPage() {
                       <th className="text-right pb-2 font-normal">雇用(対象外)</th>
                       <th className="text-right pb-2 font-normal">委託(税込)</th>
                       <th className="text-right pb-2 font-normal">内消費税</th>
+                      <th className="text-right pb-2 font-normal">交通費</th>
                       <th className="text-right pb-2 font-normal">総合計</th>
                     </tr>
                   </thead>
@@ -737,10 +798,11 @@ export default function AdminPage() {
                           <td className="py-2.5 text-right" style={{ color: 'var(--navy)' }}>{r.employTotal.toLocaleString()}</td>
                           <td className="py-2.5 text-right" style={{ color: 'var(--navy)' }}>{r.contractTotal.toLocaleString()}</td>
                           <td className="py-2.5 text-right text-xs" style={{ color: 'var(--gray)' }}>{r.contractTax.toLocaleString()}</td>
+                          <td className="py-2.5 text-right text-xs" style={{ color: (r.transport ?? 0) > 0 ? 'var(--navy)' : 'var(--gray)' }}>{(r.transport ?? 0).toLocaleString()}</td>
                           <td className="py-2.5 text-right font-medium" style={{ color: 'var(--gold)' }}>{r.total.toLocaleString()}</td>
                         </tr>
                         {payrollOpen.has(r.user_id) && (
-                          <tr><td colSpan={5} className="px-4 py-3 bg-amber-50/40">
+                          <tr><td colSpan={6} className="px-4 py-3 bg-amber-50/40">
                             <div className="text-xs mb-2" style={{ color: 'var(--gray)' }}>
                               根拠（{r.name} ／ {payroll.month} ／ 稼働{r.daysCount}日{r.allowance > 0 ? ` ／ 手当 ${r.allowance.toLocaleString()}円` : ''}）
                               {r.contractorName && <span> ／ 委託先：{r.contractorName}</span>}
@@ -762,6 +824,12 @@ export default function AdminPage() {
                                   <span style={{ color: 'var(--navy)' }}>委託 {r.allowance.toLocaleString()}（管理医師手当）</span>
                                 </div>
                               )}
+                              {r.transport > 0 && (
+                                <div className="flex items-center gap-3 text-xs">
+                                  <span className="w-16" style={{ color: 'var(--gray)' }}>交通費</span>
+                                  <span style={{ color: 'var(--navy)' }}>実費 {r.transport.toLocaleString()}（承認済み交通費の合計）</span>
+                                </div>
+                              )}
                             </div>
                             {r.note && <div className="text-xs mt-2" style={{ color: '#EF4444' }}>別途・注意：{r.note}</div>}
                           </td></tr>
@@ -773,12 +841,91 @@ export default function AdminPage() {
                       <td className="py-2.5 text-right font-medium" style={{ color: 'var(--navy)' }}>{payroll.grand.employ.toLocaleString()}</td>
                       <td className="py-2.5 text-right font-medium" style={{ color: 'var(--navy)' }}>{payroll.grand.contract.toLocaleString()}</td>
                       <td className="py-2.5 text-right text-xs" style={{ color: 'var(--gray)' }}>{payroll.grand.tax.toLocaleString()}</td>
+                      <td className="py-2.5 text-right font-medium" style={{ color: 'var(--navy)' }}>{(payroll.grand.transport ?? 0).toLocaleString()}</td>
                       <td className="py-2.5 text-right font-bold" style={{ color: 'var(--gold)' }}>{payroll.grand.total.toLocaleString()}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
               <div className="text-xs mt-3" style={{ color: 'var(--gray)' }}>各行をタップすると、日ごとの根拠が開きます。鑓水先生の夜間歩合・今井先生の手術10%などは「別途」（データ待ち）です。</div>
+            </>
+          )}
+        </div>
+        )}
+
+        {/* 経費（交通費申請） */}
+        {tab === 'expense' && (
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            <div className="text-xs tracking-[0.2em] flex-1" style={{ color: 'var(--gray)' }}>EXPENSE — 交通費申請</div>
+            <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
+              className="px-2 py-1 rounded-lg text-xs border focus:outline-none"
+              style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }} />
+            <button onClick={exportExpenseCSV} disabled={!expenses.length}
+              className="btn-outline text-xs px-3 py-1.5 rounded-lg tracking-wider disabled:opacity-40">CSV</button>
+          </div>
+
+          {expLoading ? (
+            <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>読み込み中...</p>
+          ) : expenses.length === 0 ? (
+            <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>{selectedMonth.replace('-', '年')}月の申請はありません</p>
+          ) : (
+            <>
+              {(() => {
+                const approvedTotal = expenses.filter(e => e.status === 'approved').reduce((s, e) => s + e.amount, 0)
+                const pendingCount = expenses.filter(e => e.status === 'pending').length
+                return (
+                  <div className="flex gap-4 mb-4 text-sm">
+                    <div><span className="text-xs" style={{ color: 'var(--gray)' }}>承認済み合計 </span><b style={{ color: 'var(--navy)' }}>{approvedTotal.toLocaleString()}円</b></div>
+                    {pendingCount > 0 && <div><span className="text-xs" style={{ color: 'var(--gray)' }}>未承認 </span><b style={{ color: '#B45309' }}>{pendingCount}件</b></div>}
+                  </div>
+                )
+              })()}
+              {(() => {
+                const groups = new Map<string, AdminExpense[]>()
+                for (const e of expenses) { const a = groups.get(e.user_id) ?? []; a.push(e); groups.set(e.user_id, a) }
+                const entries = [...groups.entries()].sort((a, b) => a[1][0].name.localeCompare(b[1][0].name, 'ja'))
+                return entries.map(([uid, list]) => {
+                  const approved = list.filter(e => e.status === 'approved').reduce((s, e) => s + e.amount, 0)
+                  return (
+                    <div key={uid} className="mb-4">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="text-sm font-semibold" style={{ color: 'var(--navy)' }}>{list[0].name}</div>
+                        <div className="text-xs" style={{ color: 'var(--gold)' }}>承認済み {approved.toLocaleString()}円</div>
+                      </div>
+                      <div className="space-y-1.5">
+                        {[...list].sort((a, b) => a.date.localeCompare(b.date)).map(e => (
+                          <div key={e.id} className="rounded-lg px-3 py-2" style={{ background: 'var(--off-white)' }}>
+                            <div className="flex items-center gap-2 text-sm">
+                              <span className="text-xs w-12 shrink-0" style={{ color: 'var(--gray)' }}>{fmtD(e.date)}</span>
+                              <span className="shrink-0" style={{ color: 'var(--navy)' }}>{e.amount.toLocaleString()}円</span>
+                              <span className="flex-1 min-w-0 truncate text-xs" style={{ color: 'var(--gray)' }}>
+                                {e.transport ?? ''}{e.from_place ? ` ${e.from_place}→${e.to_place ?? ''}` : ''}{e.purpose ? `／${e.purpose}` : ''}
+                              </span>
+                              {e.receipt_url && <a href={e.receipt_url} target="_blank" rel="noopener noreferrer" className="text-xs shrink-0" style={{ color: 'var(--gold)' }}>📷領収書</a>}
+                              <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${e.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : e.status === 'rejected' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>
+                                {e.status === 'approved' ? '承認' : e.status === 'rejected' ? '却下' : '申請中'}
+                              </span>
+                            </div>
+                            {e.status === 'rejected' && e.reject_reason && (
+                              <div className="text-xs mt-1" style={{ color: '#EF4444' }}>却下理由：{e.reject_reason}</div>
+                            )}
+                            {e.status === 'pending' && (
+                              <div className="flex gap-2 mt-2">
+                                <button onClick={() => reviewExpense(e.id, 'approve')}
+                                  className="text-xs px-3 py-1 rounded-lg bg-emerald-600 text-white tracking-wider">承認</button>
+                                <button onClick={() => reviewExpense(e.id, 'reject')}
+                                  className="text-xs px-3 py-1 rounded-lg border tracking-wider" style={{ borderColor: 'var(--gray-light)', color: '#EF4444' }}>却下</button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })
+              })()}
+              <div className="text-xs mt-2" style={{ color: 'var(--gray)' }}>承認した交通費は、その月の「報酬」明細に「交通費(実費)」として合算されます。</div>
             </>
           )}
         </div>
