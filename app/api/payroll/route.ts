@@ -3,7 +3,8 @@ import { requireAdmin } from '@/lib/server-admin'
 
 export const runtime = 'nodejs'
 
-type Shift = { user_id: string; date: string; start_time: string | null; kind: string }
+type Shift = { user_id: string; date: string; start_time: string | null; end_time: string | null; kind: string }
+type Att = { user_id: string; type: string; timestamp: string }
 type Rate = { user_id: string; employ_daily: number; contract_daily: number; monthly_allowance: number; both_contracts: boolean; contractor_name: string | null; note: string | null }
 type Adj = { user_id: string; date: string; kind: string; contract: string; amount: number; reason: string | null }
 
@@ -23,13 +24,32 @@ export async function POST(req: NextRequest) {
   const { data: profs } = await admin.from('profiles').select('id,name')
   const name = new Map<string, string>((profs ?? []).map((p: { id: string; name: string }) => [p.id, p.name]))
   const { data: rates } = await admin.from('doctor_rates').select('*')
-  const { data: shifts } = await admin.from('shifts').select('user_id,date,start_time,kind').gte('date', start).lte('date', end)
+  const { data: shifts } = await admin.from('shifts').select('user_id,date,start_time,end_time,kind').gte('date', start).lte('date', end)
   const { data: adjs } = await admin.from('pay_adjustments').select('*').gte('date', start).lte('date', end)
   // 承認済みの交通費（実費）をその月ぶん合算する
   const { data: exps } = await admin.from('expense_requests').select('user_id,amount').eq('status', 'approved').gte('date', start).lte('date', end)
   const transportByUser = new Map<string, number>()
   for (const e of (exps ?? []) as { user_id: string; amount: number }[]) {
     transportByUser.set(e.user_id, (transportByUser.get(e.user_id) ?? 0) + (e.amount || 0))
+  }
+
+  // 打刻(勤怠)から 出勤/退勤/休憩 を (ユーザー×日)ごとに集計（明細表示用。金額計算はシフトベースのまま）
+  const { data: att } = await admin.from('attendance').select('user_id,type,timestamp')
+    .gte('timestamp', `${start}T00:00:00+09:00`).lte('timestamp', `${end}T23:59:59+09:00`)
+    .order('timestamp', { ascending: true })
+  const jstShift = (ts: string) => new Date(new Date(ts).getTime() + 9 * 60 * 60 * 1000)
+  const jstDate = (ts: string) => { const d = jstShift(ts); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}` }
+  const jstHM = (ts: string) => { const d = jstShift(ts); return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}` }
+  const attMap = new Map<string, { clockIn: string; clockOut: string; breakMin: number }>()
+  const brkTmp = new Map<string, string | null>()
+  for (const a of (att ?? []) as Att[]) {
+    const key = `${a.user_id}|${jstDate(a.timestamp)}`
+    let e = attMap.get(key)
+    if (!e) { e = { clockIn: '', clockOut: '', breakMin: 0 }; attMap.set(key, e) }
+    if (a.type === 'clock_in' && !e.clockIn) e.clockIn = jstHM(a.timestamp)
+    if (a.type === 'clock_out') e.clockOut = jstHM(a.timestamp)
+    if (a.type === 'break_start') brkTmp.set(key, a.timestamp)
+    if (a.type === 'break_end') { const bs = brkTmp.get(key); if (bs) { e.breakMin += Math.round((new Date(a.timestamp).getTime() - new Date(bs).getTime()) / 60000); brkTmp.set(key, null) } }
   }
 
   const shiftsByUser = new Map<string, Shift[]>()
@@ -58,7 +78,16 @@ export async function POST(req: NextRequest) {
         if (a.kind === 'override') { if (a.contract === 'employ') employ = a.amount; else contract = a.amount }
         else { if (a.contract === 'employ') employ += a.amount; else contract += a.amount } // add
       }
-      if (employ || contract) days.push({ date: d, employ, contract, time: sh ? (sh.start_time ?? '') : '', adj: aList.some(a => a.date === d) })
+      if (employ || contract) {
+        const at = attMap.get(`${r.user_id}|${d}`)
+        days.push({
+          date: d, employ, contract,
+          time: at?.clockIn || (sh ? (sh.start_time ?? '') : ''),   // 出勤（打刻優先、なければシフト開始）
+          end: at?.clockOut || (sh ? (sh.end_time ?? '') : ''),      // 退勤（打刻優先、なければシフト終了）
+          breakMin: at?.breakMin ?? 0,                               // 休憩（分）
+          adj: aList.some(a => a.date === d),
+        })
+      }
       employTotal += employ; contractTotal += contract
     }
     const worked = days.length > 0
