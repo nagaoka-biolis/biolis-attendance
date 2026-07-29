@@ -286,6 +286,7 @@ export default function AdminPage() {
     await reloadShifts()
   }
   const [invRoles, setInvRoles] = useState<Record<string, string>>({})
+  const [keiriIds, setKeiriIds] = useState<Set<string>>(new Set())
   const [manual, setManual] = useState({ userId: '', type: 'clock_in', datetime: '' })
   const [manualMsg, setManualMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [standardMinutes, setStandardMinutes] = useState(480)  // 所定労働時間（分）デフォルト8h
@@ -343,7 +344,27 @@ export default function AdminPage() {
       for (const r of inv as { id: string; role: string }[]) map[r.id] = r.role
       setInvRoles(map)
     }
+    // 経理（領収書 手動保管）権限
+    const { data: km } = await supabase.from('receipt_managers').select('id')
+    if (km) setKeiriIds(new Set((km as { id: string }[]).map(r => r.id)))
   }, [])
+
+  const handleSetKeiri = async (s: Profile, enabled: boolean) => {
+    setKeiriIds(prev => {  // 楽観的更新
+      const next = new Set(prev)
+      if (enabled) next.add(s.id); else next.delete(s.id)
+      return next
+    })
+    const res = await fetch('/api/set-keiri-role', {
+      method: 'POST', headers: await authHeader(),
+      body: JSON.stringify({ userId: s.id, enabled }),
+    })
+    if (!res.ok) {
+      const r = await res.json().catch(() => ({}))
+      alert(`失敗: ${r.error ?? '不明なエラー'}`)
+      await fetchStaff()  // 失敗時は再取得して戻す
+    }
+  }
 
   const handleSetInventoryRole = async (s: Profile, role: string) => {
     setInvRoles(prev => ({ ...prev, [s.id]: role }))  // 楽観的更新
@@ -678,9 +699,14 @@ export default function AdminPage() {
           <div className="text-xs tracking-[0.3em]" style={{ color: 'var(--gold)' }}>BiOLiS CLINIC</div>
           <div className="text-white text-sm font-light tracking-wider mt-0.5">管理者ダッシュボード</div>
         </div>
-        <button onClick={handleLogout} className="text-white/40 text-xs tracking-wider hover:text-white/70 transition">
-          ログアウト
-        </button>
+        <div className="flex items-center gap-4">
+          <button onClick={() => router.push('/receipts')} className="text-white/70 text-xs tracking-wider hover:text-white transition">
+            領収書 手動保管
+          </button>
+          <button onClick={handleLogout} className="text-white/40 text-xs tracking-wider hover:text-white/70 transition">
+            ログアウト
+          </button>
+        </div>
       </header>
 
       {/* タブ */}
@@ -1165,6 +1191,14 @@ export default function AdminPage() {
                         <option value="admin">管理者</option>
                       </select>
                     </div>
+                    <label className="flex items-center gap-1 cursor-pointer" title="領収書の手動保管ページを使える権限">
+                      <span className="text-xs" style={{ color: 'var(--gray)' }}>経理</span>
+                      <input
+                        type="checkbox"
+                        checked={keiriIds.has(s.id)}
+                        onChange={e => handleSetKeiri(s, e.target.checked)}
+                      />
+                    </label>
                     <button
                       onClick={() => handleResetPassword(s)}
                       className="text-xs px-3 py-1 rounded-full border hover:bg-white transition"

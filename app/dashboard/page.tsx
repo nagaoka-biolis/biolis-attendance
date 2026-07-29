@@ -44,6 +44,7 @@ type MyExpense = {
 export default function DashboardPage() {
   const router = useRouter()
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [isKeiri, setIsKeiri] = useState(false)
   const [todayRecords, setTodayRecords] = useState<Attendance[]>([])
   const [now, setNow] = useState(new Date())
   const [loading, setLoading] = useState(false)
@@ -216,6 +217,9 @@ export default function DashboardPage() {
         .eq('id', user.id)
         .single()
       setProfile(p)
+      // 経理（領収書 手動保管）権限を持つか
+      const { data: km } = await supabase.from('receipt_managers').select('id').eq('id', user.id).maybeSingle()
+      setIsKeiri(!!km)
       await fetchTodayRecords(user.id)
       await fetchMyMessages(user.id)
       await fetchMyExpenses()
@@ -460,6 +464,18 @@ export default function DashboardPage() {
       </header>
 
       <div className="flex-1 px-5 py-6 max-w-md mx-auto w-full space-y-4">
+
+        {/* 経理権限がある人だけ: 領収書 手動保管ページへの導線 */}
+        {isKeiri && (
+          <button
+            onClick={() => router.push('/receipts')}
+            className="card w-full p-4 flex items-center justify-between hover:opacity-90 transition"
+            style={{ borderLeft: '4px solid var(--gold)' }}
+          >
+            <span className="text-sm font-semibold" style={{ color: 'var(--navy)' }}>領収書 手動保管（経理）</span>
+            <span className="text-xs" style={{ color: 'var(--gold)' }}>開く →</span>
+          </button>
+        )}
 
         {/* 挨拶 + 時計 */}
         <div className="card p-6 text-center">
