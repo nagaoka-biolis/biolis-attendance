@@ -358,6 +358,16 @@ export default function DashboardPage() {
   }
   const handleSubmitRequests = async () => {
     if (!profile || reqLocked || !reqTargetMonth) return
+    // 勤務希望なのに出勤・退勤が空のまま提出されるのを防ぐ（空欄提出を弾く）
+    const mmLabel = reqTargetMonth.split('-')[1]
+    const missing = Object.entries(reqMap)
+      .filter(([, v]) => v.kind === 'work' && (!v.start || !v.end))
+      .map(([d]) => Number(d))
+      .sort((a, b) => a - b)
+    if (missing.length) {
+      setReqMsg({ text: `勤務希望の日は出勤・退勤の時刻を両方入力してください（未入力：${missing.map(d => `${mmLabel}/${d}`).join('・')}）`, type: 'error' })
+      return
+    }
     setReqSaving(true); setReqMsg(null)
     const [year, mon] = reqTargetMonth.split('-').map(Number)
     const start = `${year}-${String(mon).padStart(2, '0')}-01`
