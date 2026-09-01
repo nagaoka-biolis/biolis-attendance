@@ -55,6 +55,41 @@ function findSubsets(
   return { solutions, tooMany }
 }
 
+// 施術名そのものに医師名が入っていることがある。
+//   「鑓水医師　指名料」「今井医師　初診カウンセリング」「金医師　指名料」など
+// これは金額の計算より確実な手がかりなので、最初に使う。
+// 「夜間診察料」は夜枠の目印。昼枠と夜枠の両方がある医師のときだけ夜に寄せる。
+function hintFromItems(checkout: Checkout, labels: string[]): string | null {
+  const text = checkout.items.map((i) => i.name).join(' ')
+  const night = /夜間診察料/.test(text)
+
+  for (const label of labels) {
+    const surname = label.replace(/[（(]\s*夜\s*[)）]/g, '').replace(/\s*Dr\s*$/i, '').trim()
+    if (!surname) continue
+    // 「鑓水医師」「鑓水先生」のように名前が明示されている施術があるか
+    if (!new RegExp(`${surname}\\s*(医師|先生)`).test(text)) continue
+
+    // 夜間診察料があり、その医師に夜枠があるなら夜枠を採る
+    const isNightLabel = /[（(]\s*夜\s*[)）]/.test(label)
+    if (night) {
+      const nightLabel = labels.find(
+        (l) => l !== label && l.startsWith(surname) && /[（(]\s*夜\s*[)）]/.test(l)
+      )
+      if (nightLabel) return nightLabel
+      if (isNightLabel) return label
+    }
+    if (!isNightLabel) return label
+  }
+
+  // 医師名は書かれていないが「夜間診察料」がある場合。
+  // その日の夜枠が1人しかいなければ、その医師で確定できる。
+  if (night) {
+    const nights = labels.filter((l) => /[（(]\s*夜\s*[)）]/.test(l))
+    if (nights.length === 1) return nights[0]
+  }
+  return null
+}
+
 // その日の会計に担当医を割り当てる。
 // 2段構えで探す。
 //   1回目: 金額と人数の両方が合う組み合わせ（確実性が高い）
@@ -152,6 +187,30 @@ export function attributeCheckouts(
         byCheckout.set(c.no, [...owners][0])
         pool.splice(i, 1)
       }
+    }
+  }
+
+  // --- 4回目: 施術名に書かれた医師名を使う ---
+  // 「鑓水医師 指名料」のように、施術名そのものが担当を示していることがある。
+  // 金額の計算を邪魔しないよう、計算で解けなかった分にだけ最後に適用する。
+  // その医師の未割当の残額を超える場合は採らない（手がかりが当てにならないため）。
+  if (pool.length > 0) {
+    const labels = doctors.map((d) => d.label)
+    const used3 = new Map<string, number>()
+    for (const [no, label] of byCheckout) {
+      const c = paid.find((x) => x.no === no)
+      if (c) used3.set(label, (used3.get(label) ?? 0) + c.amount)
+    }
+    for (let i = pool.length - 1; i >= 0; i--) {
+      const who = hintFromItems(pool[i], labels)
+      if (!who) continue
+      const doc = doctors.find((d) => d.label === who)
+      if (!doc) continue
+      const next = (used3.get(who) ?? 0) + pool[i].amount
+      if (next > doc.amount) continue
+      used3.set(who, next)
+      byCheckout.set(pool[i].no, who)
+      pool.splice(i, 1)
     }
   }
 
