@@ -45,6 +45,7 @@ export default function DashboardPage() {
   const router = useRouter()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [isKeiri, setIsKeiri] = useState(false)
+  const [isAiUser, setIsAiUser] = useState(false)
   const [todayRecords, setTodayRecords] = useState<Attendance[]>([])
   const [now, setNow] = useState(new Date())
   const [loading, setLoading] = useState(false)
@@ -220,6 +221,9 @@ export default function DashboardPage() {
       // 経理（領収書 手動保管）権限を持つか
       const { data: km } = await supabase.from('receipt_managers').select('id').eq('id', user.id).maybeSingle()
       setIsKeiri(!!km)
+      // BiOLiS AI（経営数字の対話確認）の利用者か。権限の判定はサーバ側でも必ず行う。
+      const { data: au } = await supabase.from('ai_users').select('id').eq('id', user.id).maybeSingle()
+      setIsAiUser(!!au)
       await fetchTodayRecords(user.id)
       await fetchMyMessages(user.id)
       await fetchMyExpenses()
@@ -474,6 +478,21 @@ export default function DashboardPage() {
       </header>
 
       <div className="flex-1 px-5 py-6 max-w-md mx-auto w-full space-y-4">
+
+        {/* BiOLiS AI の利用者だけ: 対話画面への導線 */}
+        {isAiUser && (
+          <button
+            onClick={() => router.push('/ai')}
+            className="card w-full p-4 flex items-center justify-between hover:opacity-90 transition"
+            style={{ borderLeft: '4px solid var(--navy)' }}
+          >
+            <span className="text-left">
+              <span className="block text-sm font-semibold" style={{ color: 'var(--navy)' }}>BiOLiS AI</span>
+              <span className="block text-xs mt-0.5" style={{ color: 'var(--gray)' }}>シフトと売上について聞く</span>
+            </span>
+            <span className="text-xs" style={{ color: 'var(--gold)' }}>開く →</span>
+          </button>
+        )}
 
         {/* 経理権限がある人だけ: 領収書 手動保管ページへの導線 */}
         {isKeiri && (

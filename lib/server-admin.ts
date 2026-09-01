@@ -38,6 +38,26 @@ export async function requireUser(req: NextRequest): Promise<
   return { ok: true, admin, userId: user.id }
 }
 
+// AIチャット（BiOLiS AI）の利用者か検証する。
+// 他の権限と違い **role='admin' でも自動では通さない**（ai_users 名簿に載っている人だけ）。
+// 売上などの経営数字を扱うため、勤怠の管理権限とは切り離す。経緯は migrations/006_ai_users.sql。
+// scope は 'exec'（経営数字まで可）/ 'self'（自分の勤怠のみ）。
+export async function requireAiUser(req: NextRequest): Promise<
+  | { ok: true; admin: SupabaseClient; userId: string; scope: string }
+  | { ok: false; error: string; status: number }
+> {
+  const admin = adminClient()
+  const t = req.headers.get('authorization')?.replace('Bearer ', '')
+  if (!t) return { ok: false, error: '認証が必要です', status: 401 }
+  const { data: { user }, error } = await admin.auth.getUser(t)
+  if (error || !user) return { ok: false, error: '認証に失敗しました', status: 401 }
+
+  const { data: row } = await admin.from('ai_users').select('scope').eq('id', user.id).maybeSingle()
+  if (!row) return { ok: false, error: 'このツールの利用権限がありません', status: 403 }
+
+  return { ok: true, admin, userId: user.id, scope: (row as { scope?: string }).scope ?? 'exec' }
+}
+
 // 経理権限（領収書の手動保管）を持つか検証する。
 // 「メインroleがadmin」または「receipt_managers に行がある」なら許可。
 export async function requireReceiptManager(req: NextRequest): Promise<

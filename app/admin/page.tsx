@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase, Profile, Attendance, Message, Shift } from '@/lib/supabase'
 import ShiftCalendar, { shiftTimeLabel } from '@/components/ShiftCalendar'
+import AiChat from '@/components/AiChat'
 
 type MessageWithProfile = Message & { profiles: Profile | null }
 
@@ -46,7 +47,7 @@ export default function AdminPage() {
   const [newStaff, setNewStaff] = useState({ name: '', email: '', password: '', role: 'staff' })
   const [staffSaving, setStaffSaving] = useState(false)
   const [staffMsg, setStaffMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
-  const [tab, setTab] = useState<'attendance' | 'shift' | 'staff' | 'messages' | 'payroll' | 'expense'>('attendance')
+  const [tab, setTab] = useState<'attendance' | 'shift' | 'staff' | 'messages' | 'payroll' | 'expense' | 'ai'>('attendance')
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [payroll, setPayroll] = useState<any>(null)
   const [payrollLoading, setPayrollLoading] = useState(false)
@@ -719,6 +720,7 @@ export default function AdminPage() {
             ['expense', '経費'],
             ['staff', 'スタッフ管理'],
             ['messages', '連絡'],
+            ['ai', 'AI'],
           ] as const).map(([key, label]) => {
             const unresolved = key === 'messages' ? messages.filter(m => !m.resolved).length : key === 'expense' ? expPending : 0
             return (
@@ -743,6 +745,24 @@ export default function AdminPage() {
       </div>
 
       <div className="max-w-3xl mx-auto px-5 py-6 space-y-5">
+
+        {/* BiOLiS AI（利用は ai_users 名簿のみ。権限が無ければコンポーネント側で弾く） */}
+        {tab === 'ai' && (
+          <div className="card overflow-hidden" style={{ height: '70vh' }}>
+            <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--gray-light)' }}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-bold" style={{ color: 'var(--navy)' }}>BiOLiS AI</div>
+                  <div className="text-xs" style={{ color: 'var(--gray)' }}>シフトと売上について、そのまま日本語で聞けます</div>
+                </div>
+                <a href="/ai" className="text-xs px-3 py-1 rounded-full border" style={{ borderColor: 'var(--gray-light)', color: 'var(--gray)' }}>全画面</a>
+              </div>
+            </div>
+            <div style={{ height: 'calc(70vh - 62px)' }}>
+              <AiChat variant="panel" />
+            </div>
+          </div>
+        )}
 
         {/* フィルター */}
         {tab === 'attendance' && (
