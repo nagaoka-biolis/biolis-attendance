@@ -56,32 +56,79 @@ function findSubsets(
 }
 
 // その日の会計に担当医を割り当てる。
+// 2段構えで探す。
+//   1回目: 金額と人数の両方が合う組み合わせ（確実性が高い）
+//   2回目: 残りを金額だけで合わせる
+// ACUSISの「人数」は患者数であって会計件数ではない（同じ患者が2回精算する日がある）。
+// そのため人数を必須にすると取りこぼす。金額だけの照合も併用して拾う。
 export function attributeCheckouts(
   checkouts: Checkout[],
   doctors: DoctorAmount[]
 ): Attribution {
   const byCheckout = new Map<string, string>()
-  const remaining = checkouts.filter((c) => c.amount > 0)
-  const targets = doctors.filter((d) => d.amount > 0 || d.patients > 0)
+  const paid = checkouts.filter((c) => c.amount > 0)
   let ambiguous = false
 
-  // 金額・人数がはっきりしている医師から順に確定させる。
-  // 人数1人＝会計1件なので、まずそこから決まることが多い。
-  const ordered = [...targets].sort((a, b) => a.patients - b.patients)
-
-  const pool = [...remaining]
-  for (const d of ordered) {
-    if (d.patients <= 0 || pool.length === 0) continue
+  // --- 1回目: 金額 + 人数 ---
+  const pool = [...paid]
+  for (const d of [...doctors].filter((d) => d.patients > 0).sort((a, b) => a.patients - b.patients)) {
+    if (pool.length === 0) continue
     const { solutions, tooMany } = findSubsets(pool, d.amount, d.patients)
-    if (tooMany || solutions.length !== 1) {
-      if (tooMany) ambiguous = true
-      continue
-    }
+    if (tooMany) ambiguous = true
+    if (tooMany || solutions.length !== 1) continue
     const idx = new Set(solutions[0])
     solutions[0].forEach((i) => byCheckout.set(pool[i].no, d.label))
-    // 割り当て済みを取り除いて次の医師へ
+    for (let i = pool.length - 1; i >= 0; i--) if (idx.has(i)) pool.splice(i, 1)
+  }
+
+  // --- 2回目: 残りを金額だけで ---
+  // 1回目で確定した分を医師の金額から差し引き、残額に合う組み合わせを探す。
+  const used = new Map<string, number>()
+  for (const [no, label] of byCheckout) {
+    const c = paid.find((x) => x.no === no)
+    if (c) used.set(label, (used.get(label) ?? 0) + c.amount)
+  }
+  const remain = doctors
+    .map((d) => ({ ...d, amount: d.amount - (used.get(d.label) ?? 0) }))
+    .filter((d) => d.amount > 0)
+    .sort((a, b) => b.amount - a.amount)
+
+  for (const d of remain) {
+    if (pool.length === 0) continue
+    const { solutions, tooMany } = findAnySize(pool, d.amount)
+    if (tooMany) ambiguous = true
+    if (tooMany || solutions.length !== 1) continue
+    const idx = new Set(solutions[0])
+    solutions[0].forEach((i) => byCheckout.set(pool[i].no, d.label))
     for (let i = pool.length - 1; i >= 0; i--) if (idx.has(i)) pool.splice(i, 1)
   }
 
   return { byCheckout, unresolved: pool.length, ambiguous }
+}
+
+// 件数を問わず、合計が target になる組み合わせを探す（多くても6件まで）
+function findAnySize(
+  items: Checkout[],
+  target: number,
+  maxSize = 6
+): { solutions: number[][]; tooMany: boolean } {
+  const solutions: number[][] = []
+  let tooMany = false
+  const walk = (start: number, picked: number[], sum: number) => {
+    if (tooMany) return
+    if (sum === target && picked.length > 0) {
+      solutions.push([...picked])
+      if (solutions.length > 1) tooMany = true
+      return
+    }
+    if (sum > target || picked.length >= maxSize) return
+    for (let i = start; i < items.length; i++) {
+      picked.push(i)
+      walk(i + 1, picked, sum + items[i].amount)
+      picked.pop()
+      if (tooMany) return
+    }
+  }
+  walk(0, [], 0)
+  return { solutions, tooMany }
 }
