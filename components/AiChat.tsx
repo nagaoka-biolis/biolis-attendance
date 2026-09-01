@@ -1,8 +1,15 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { supabase } from '@/lib/supabase'
 import { MODEL_CHOICES } from '@/lib/ai-models'
+import {
+  createRecognition,
+  speechInputAvailable,
+  speechOutputAvailable,
+  speak,
+  stopSpeaking,
+} from '@/lib/voice'
 
 // BiOLiS AI のチャット画面。
 // /ai（フルスクリーン）と管理画面の中の両方で使うので、見た目だけ variant で切り替える。
@@ -131,6 +138,37 @@ function Markdown({ text }: { text: string }) {
   return <div>{out}</div>
 }
 
+// 状態表示の球。待機／聞き取り中／考え中／読み上げ中で色と動きが変わる。
+function Orb({ state }: { state: 'idle' | 'listening' | 'thinking' | 'speaking' }) {
+  const look = {
+    idle: { color: '#C9A84C', label: '待機中' },
+    listening: { color: '#E05B54', label: '聞いています' },
+    thinking: { color: '#5B8FE0', label: '考えています' },
+    speaking: { color: '#E8C97A', label: '話しています' },
+  }[state]
+  const active = state !== 'idle'
+  return (
+    <div className="flex flex-col items-center justify-center py-5 select-none">
+      <div className="relative" style={{ width: 96, height: 96, color: look.color }}>
+        {active && <span className="ai-orb-ring" />}
+        <div
+          className={`ai-orb w-full h-full${active ? ' is-active' : ''}`}
+          style={{
+            background: `radial-gradient(circle at 50% 45%, #fff 0%, ${look.color} 38%, ${look.color}22 72%, transparent 78%)`,
+            boxShadow: `0 0 44px ${look.color}66`,
+          }}
+        />
+      </div>
+      <p className="text-[11px] mt-3 tracking-widest" style={{ color: look.color }}>
+        {look.label}
+      </p>
+    </div>
+  )
+}
+
+// 音声対応の有無は変化しないので、購読は何もしない
+const noSubscribe = () => () => {}
+
 // --- 本体 -------------------------------------------------------------------
 
 export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel' }) {
@@ -144,6 +182,18 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
   const [info, setInfo] = useState<{ 売上の月?: string[]; APIキー設定済み?: boolean } | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
 
+  // 音声まわり
+  const [voiceOn, setVoiceOn] = useState(false) // 回答を読み上げるか
+  const [listening, setListening] = useState(false) // マイクで聞き取り中か
+  const [speaking, setSpeaking] = useState(false) // 読み上げ中か
+  // 音声が使えるかはブラウザ次第で、途中で変わらない。
+  // サーバ側描画では false を返して、画面が食い違わないようにする。
+  const canListen = useSyncExternalStore(noSubscribe, speechInputAvailable, () => false)
+  const canSpeak = useSyncExternalStore(noSubscribe, speechOutputAvailable, () => false)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recogRef = useRef<any>(null)
+  const sendRef = useRef<(t: string) => void>(() => {})
+
   const token = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession()
     return session?.access_token ?? ''
@@ -152,16 +202,22 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
   // 起動時に権限と材料の状況を確認（AIは呼ばないので費用はかからない）
   useEffect(() => {
     const init = async () => {
-      const t = await token()
-      if (!t) { setReady(true); return }
-      const res = await fetch('/api/ai-chat', { headers: { Authorization: `Bearer ${t}` } })
-      if (res.ok) {
-        const j = await res.json().catch(() => null)
-        setAllowed(true)
-        setInfo(j)
-        setModel(String(j?.既定のモデル ?? ''))
+      try {
+        const t = await token()
+        if (!t) return
+        const res = await fetch('/api/ai-chat', { headers: { Authorization: `Bearer ${t}` } })
+        if (res.ok) {
+          const j = await res.json().catch(() => null)
+          setAllowed(true)
+          setInfo(j)
+          setModel(String(j?.既定のモデル ?? ''))
+        }
+      } catch {
+        setError('接続できませんでした。通信環境を確認して画面を更新してください')
+      } finally {
+        // 失敗しても「読み込み中…」のままにしない
+        setReady(true)
       }
-      setReady(true)
     }
     init()
   }, [token])
@@ -169,6 +225,42 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [turns, busy])
+
+  // 画面を離れるときは読み上げを止める
+  useEffect(() => () => stopSpeaking(), [])
+
+  // マイクの開始／停止。話し終わるとそのまま質問として送る。
+  const toggleMic = () => {
+    if (listening) {
+      recogRef.current?.stop()
+      return
+    }
+    stopSpeaking()
+    setSpeaking(false)
+    const r = createRecognition()
+    if (!r) return
+    recogRef.current = r
+    let finalText = ''
+    r.onresult = (e: { results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => {
+      let interim = ''
+      for (let i = 0; i < e.results.length; i++) {
+        const res = e.results[i]
+        const t = res[0]?.transcript ?? ''
+        if (res.isFinal) finalText += t
+        else interim += t
+      }
+      setInput(finalText + interim)
+    }
+    r.onerror = () => setListening(false)
+    r.onend = () => {
+      setListening(false)
+      const said = finalText.trim()
+      if (said) sendRef.current(said)
+    }
+    setInput('')
+    setListening(true)
+    r.start()
+  }
 
   const send = async (text: string) => {
     const q = text.trim()
@@ -188,7 +280,12 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
       if (!res.ok) {
         setError(j?.error ?? '応答を取得できませんでした')
       } else {
-        setTurns((p) => [...p, { role: 'assistant', content: String(j.answer ?? '') }])
+        const answer = String(j.answer ?? '')
+        setTurns((p) => [...p, { role: 'assistant', content: answer }])
+        if (voiceOn && answer) {
+          setSpeaking(true)
+          speak(answer, () => setSpeaking(false))
+        }
       }
     } catch {
       setError('通信に失敗しました')
@@ -196,6 +293,11 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
       setBusy(false)
     }
   }
+
+  // マイクの終了時から send を呼べるようにしておく
+  useEffect(() => {
+    sendRef.current = (t: string) => { void send(t) }
+  })
 
   const dark = variant === 'full'
   const bg = dark ? 'var(--navy)' : 'transparent'
@@ -224,6 +326,12 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
 
   return (
     <div className="flex flex-col h-full" style={{ background: bg, color: fg }}>
+      {dark && (
+        <div className="shrink-0 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+          <Orb state={listening ? 'listening' : busy ? 'thinking' : speaking ? 'speaking' : 'idle'} />
+        </div>
+      )}
+
       {/* 会話 */}
       <div className={`flex-1 overflow-y-auto px-4 ${dark ? 'py-4' : 'py-2'}`}>
         {turns.length === 0 && (
@@ -313,6 +421,26 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
               color: fg,
             }}
           />
+          {canListen && (
+            <button
+              onClick={toggleMic}
+              disabled={busy}
+              title={listening ? '停止' : '話す'}
+              aria-label={listening ? '停止' : '話す'}
+              className="shrink-0 w-11 h-11 rounded-full border flex items-center justify-center transition disabled:opacity-40"
+              style={{
+                borderColor: listening ? '#d9534f' : dark ? 'rgba(255,255,255,0.25)' : 'var(--gray-light)',
+                background: listening ? '#d9534f' : 'transparent',
+                color: listening ? '#fff' : dark ? '#fff' : 'var(--navy)',
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <rect x="9" y="2" width="6" height="12" rx="3" />
+                <path d="M5 11a7 7 0 0 0 14 0" />
+                <path d="M12 18v4" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={() => send(input)}
             disabled={busy || !input.trim()}
@@ -339,9 +467,33 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
               </button>
             ))}
           </div>
-          <span className="text-[11px]" style={{ color: 'var(--gray)' }}>
-            {info?.APIキー設定済み === false ? 'APIキー未設定' : '⌘+Enterで送信'}
-          </span>
+          <div className="flex items-center gap-2">
+            {canSpeak && (
+              <button
+                onClick={() => {
+                  if (voiceOn) { stopSpeaking(); setSpeaking(false) }
+                  setVoiceOn(!voiceOn)
+                }}
+                className="text-[11px] px-2 py-0.5 rounded-full border transition"
+                style={{
+                  borderColor: voiceOn ? 'var(--gold)' : dark ? 'rgba(255,255,255,0.2)' : 'var(--gray-light)',
+                  color: voiceOn ? 'var(--gold)' : 'var(--gray)',
+                  fontWeight: voiceOn ? 600 : 400,
+                }}
+              >
+                {voiceOn ? '読み上げ ON' : '読み上げ OFF'}
+              </button>
+            )}
+            <span className="text-[11px]" style={{ color: 'var(--gray)' }}>
+              {info?.APIキー設定済み === false
+                ? 'APIキー未設定'
+                : listening
+                  ? '聞いています…'
+                  : speaking
+                    ? '読み上げ中'
+                    : '⌘+Enterで送信'}
+            </span>
+          </div>
         </div>
       </div>
     </div>
