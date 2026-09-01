@@ -196,6 +196,35 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
   const recogRef = useRef<any>(null)
   const sendRef = useRef<(t: string) => void>(() => {})
 
+  // CSVのまとめ取り込み（管理画面の小窓にだけ出す）
+  const [uploading, setUploading] = useState(false)
+  const [uploadMsg, setUploadMsg] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const uploadCsv = async (list: FileList) => {
+    const fd = new FormData()
+    Array.from(list).forEach((f) => fd.append('files', f))
+    setUploading(true)
+    setUploadMsg(`${list.length}件を取り込み中…`)
+    try {
+      const res = await fetch('/api/sales-upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${await token()}` },
+        body: fd,
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) setUploadMsg(j?.error ?? '取り込みに失敗しました')
+      else {
+        const ng = (j?.見送り ?? []) as string[]
+        setUploadMsg(`${j.取り込んだ件数}件を取り込みました${ng.length ? `／${ng.length}件は見送り` : ''}`)
+      }
+    } catch {
+      setUploadMsg('取り込みに失敗しました')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   const token = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession()
     return session?.access_token ?? ''
@@ -336,6 +365,34 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
 
       {/* 会話 */}
       <div className={`flex-1 overflow-y-auto px-4 ${dark ? 'py-4' : 'py-2'}`}>
+        {/* CSVのまとめ取り込み（管理画面の小窓にだけ。会長の全画面には出さない） */}
+        {!dark && (
+          <div
+            className="mb-3 px-3 py-2 rounded-lg border text-xs flex items-center justify-between gap-2"
+            style={{ borderColor: 'var(--gray-light)', background: '#fff' }}
+          >
+            <span style={{ color: 'var(--gray)' }}>
+              {uploadMsg ?? 'ACUSISのCSVをまとめて取り込めます（患者名は保存前に消えます）'}
+            </span>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv"
+              multiple
+              className="hidden"
+              onChange={(e) => { if (e.target.files?.length) uploadCsv(e.target.files); e.target.value = '' }}
+            />
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              className="shrink-0 px-3 py-1 rounded-full border disabled:opacity-40"
+              style={{ borderColor: 'var(--gold)', color: 'var(--gold)' }}
+            >
+              {uploading ? '取り込み中…' : 'CSVを取り込む'}
+            </button>
+          </div>
+        )}
+
         {turns.length === 0 && (
           <div className="py-6">
             <p className="text-sm mb-1 font-semibold" style={{ color: dark ? 'var(--gold-light)' : 'var(--navy)' }}>

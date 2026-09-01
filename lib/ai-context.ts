@@ -19,6 +19,7 @@ import {
   type CategorySalesCsv,
 } from './sales-category'
 import { parseMonthlySalesCSV, type MonthlySalesCsv } from './sales-monthly'
+import { parseDailySalesCSV, type DailySales } from './sales-daily'
 
 const yen = (n: number) => n.toLocaleString('ja-JP')
 
@@ -95,6 +96,46 @@ function renderSales(csv: DoctorSalesCsv, shifts: ShiftRow[], nameById: Map<stri
   lines.push('|---|---|---|---|')
   for (const d of summarizeByDay(csv, shifts)) {
     lines.push(`| ${d.date}(${weekday(d.date)}) | ${yen(d.total)} | ${d.drCount} | ${d.doctors.join('、') || '—'} |`)
+  }
+  return lines.join('\n')
+}
+
+// 保存済みの日次売上CSVを読む。
+// この帳票だけが「その日に何の施術が行われたか」を持っている。
+// 患者名とカルテ番号は取り込みの時点で消してあるので、ここには残っていない。
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function loadDailySales(admin: any, months: string[]): Promise<DailySales[]> {
+  if (months.length === 0) return []
+  const { data } = await admin
+    .from('app_settings')
+    .select('key,value')
+    .like('key', 'sales_csv:日次売上_%')
+
+  const all = (data ?? [])
+    .map((r: { key: string; value: string }) => parseDailySalesCSV(r.value, r.key))
+    .filter((d: DailySales | null): d is DailySales => d !== null)
+    .filter((d: DailySales) => months.includes(d.date.slice(0, 7)))
+  return all.sort((a: DailySales, b: DailySales) => a.date.localeCompare(b.date))
+}
+
+// 日ごとの施術内容を、AIが読める表テキストにする。
+// 全部載せると長くなるので、金額の大きい順に上位5件までにする。
+function renderDaily(days: DailySales[]): string {
+  const lines: string[] = []
+  lines.push('## 日ごとの施術内容（ACUSIS「日次売上」より）')
+  lines.push(
+    '患者名とカルテ番号は保存時に削除済みで、ここには含まれない。' +
+      '施術は金額の大きい順に最大5件まで（それ以上ある日は「ほかN件」と記す）。'
+  )
+  lines.push('')
+  lines.push('| 日付 | 売上(円) | 初診 | 再診 | その日の施術 |')
+  lines.push('|---|---|---|---|---|')
+  for (const d of days) {
+    const top = d.items.slice(0, 5).map((i) => `${i.name}${yen(i.amount)}円`).join('、')
+    const rest = d.items.length > 5 ? `、ほか${d.items.length - 5}件` : ''
+    lines.push(
+      `| ${d.date}(${weekday(d.date)}) | ${yen(d.売上)} | ${d.初診} | ${d.再診} | ${top}${rest} |`
+    )
   }
   return lines.join('\n')
 }
@@ -259,6 +300,10 @@ export async function buildContext(
     // 日ごとの初診・再診（新患の動きを見るため）
     const monthly = await loadMonthlySales(admin)
     if (monthly) sections.push(renderMonthly(monthly))
+
+    // 日ごとの施術内容（手術がいつあったか等はここでしか分からない）
+    const daily = await loadDailySales(admin, months.length ? months : targets)
+    if (daily.length) sections.push(renderDaily(daily))
 
     // 施術メニューの売れ行き
     const cat = await loadCategorySales(admin)
