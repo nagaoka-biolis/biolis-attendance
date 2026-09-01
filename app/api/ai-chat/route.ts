@@ -78,69 +78,72 @@ export async function POST(req: NextRequest) {
   ]
 
   const client = new Anthropic()
+
+  // 回答を待ち切ってから返すと、Opus 5 では10〜20秒ずっと無音になる。
+  // 届いた端から流して、画面と音声がすぐ動き出すようにする。
+  const encoder = new TextEncoder()
   let answer = ''
-  let usage: { input: number; output: number } = { input: 0, output: 0 }
+  let usage = { input: 0, output: 0 }
 
-  try {
-    const res = await client.messages.create({
-      model,
-      max_tokens: MAX_TOKENS,
-      // 資料は小さく質問も短いので、深く考え込ませるより速さを優先する。
-      // Vercelの60秒上限に収めるための設定でもある。
-      ...(supportsEffort(model) ? { output_config: { effort: 'medium' as const } } : {}),
-      system: SYSTEM_PROMPT,
-      messages,
-    })
-    if (res.stop_reason === 'refusal') {
-      answer = '申し訳ありません。この質問にはお答えできませんでした。'
-    } else {
-      answer = res.content
-        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-        .map((b) => b.text)
-        .join('\n')
-        .trim()
-    }
-    usage = { input: res.usage.input_tokens, output: res.usage.output_tokens }
-  } catch (error) {
-    if (error instanceof Anthropic.AuthenticationError) {
-      return NextResponse.json({ error: 'AIの認証に失敗しました（APIキーを確認してください）' }, { status: 502 })
-    }
-    if (error instanceof Anthropic.RateLimitError) {
-      return NextResponse.json({ error: '混み合っています。少し待って再度お試しください' }, { status: 429 })
-    }
-    if (error instanceof Anthropic.APIError) {
-      // クレジット切れもここに来る（前払い残高が尽きるとAPIがエラーを返す）
-      return NextResponse.json(
-        { error: `AIの呼び出しに失敗しました (${error.status}): ${error.message}` },
-        { status: 502 }
-      )
-    }
-    return NextResponse.json({ error: 'AIの呼び出しに失敗しました' }, { status: 502 })
-  }
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        const s = client.messages.stream({
+          model,
+          max_tokens: MAX_TOKENS,
+          ...(supportsEffort(model) ? { output_config: { effort: 'medium' as const } } : {}),
+          system: SYSTEM_PROMPT,
+          messages,
+        })
+        s.on('text', (delta) => {
+          answer += delta
+          controller.enqueue(encoder.encode(delta))
+        })
+        const final = await s.finalMessage()
+        if (final.stop_reason === 'refusal' && !answer) {
+          const msg = '申し訳ありません。この質問にはお答えできませんでした。'
+          answer = msg
+          controller.enqueue(encoder.encode(msg))
+        }
+        usage = { input: final.usage.input_tokens, output: final.usage.output_tokens }
+      } catch (error) {
+        const msg =
+          error instanceof Anthropic.AuthenticationError
+            ? '\n\n[AIの認証に失敗しました。APIキーを確認してください]'
+            : error instanceof Anthropic.RateLimitError
+              ? '\n\n[混み合っています。少し待って再度お試しください]'
+              : error instanceof Anthropic.APIError
+                ? `\n\n[AIの呼び出しに失敗しました (${error.status}): ${error.message}]`
+                : '\n\n[AIの呼び出しに失敗しました]'
+        controller.enqueue(encoder.encode(msg))
+        answer += msg
+      }
 
-  // 監査ログ（誰がいつ何を聞いたか）。ログの失敗で回答を落とさない。
-  // ※ supabase-js のクエリは PromiseLike（then だけ）で .catch() を持たないため、
-  //   必ず try/catch で受ける。.catch() を繋ぐと実行時に TypeError になる。
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (admin.from('ai_chat_logs') as any).insert({
-      user_id: userId,
-      question: message,
-      answer,
-      model,
-      input_tokens: usage.input,
-      output_tokens: usage.output,
-    })
-  } catch {
-    // 記録できなくても回答は返す
-  }
+      // 監査ログ（誰がいつ何を聞いたか）。ログの失敗で回答を落とさない。
+      // ※ supabase-js のクエリは PromiseLike で .catch() を持たないため try/catch で受ける。
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (admin.from('ai_chat_logs') as any).insert({
+          user_id: userId,
+          question: message,
+          answer,
+          model,
+          input_tokens: usage.input,
+          output_tokens: usage.output,
+        })
+      } catch {
+        // 記録できなくても回答は返す
+      }
+      controller.close()
+    },
+  })
 
-  return NextResponse.json({
-    ok: true,
-    answer,
-    model,
-    usage,
-    データ: { 売上の月: ctx.months, シフトの日数: ctx.shiftDays },
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Model': model,
+    },
   })
 }
 

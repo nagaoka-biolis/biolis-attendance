@@ -99,11 +99,32 @@ export function isSpeaking(): boolean {
   return speechOutputAvailable() && window.speechSynthesis.speaking
 }
 
+// 読み上げ用に「耳で分かる言い方」へ直す。
+// 画面用の文章をそのまま読ませると、4,442,375円が「よんてんよんよんに…」、
+// 8/21が「はちスラッシュにじゅういち」になって聞き取れない。
+function forEar(text: string): string {
+  return (
+    text
+      // 8/21 → 8月21日
+      .replace(/(\d{1,2})\/(\d{1,2})/g, '$1月$2日')
+      // 4,442,375円 → 約444万円（3桁区切りの大きい数字は概数で読む）
+      .replace(/(\d{1,3}(?:,\d{3})+)\s*円/g, (_m, n: string) => {
+        const v = Number(n.replace(/,/g, ''))
+        if (v >= 100000000) return `約${Math.round(v / 10000000) / 10}億円`
+        if (v >= 10000) return `約${Math.round(v / 10000)}万円`
+        return `${v}円`
+      })
+      .replace(/Dr\b/g, '先生')
+      .replace(/[（(]夜[)）]/g, 'の夜の枠')
+      .replace(/→/g, 'から')
+      .replace(/[＋+]/g, 'プラス')
+      .replace(/%/g, 'パーセント')
+      .replace(/～/g, 'から')
+  )
+}
+
 // 読み上げ用のテキストを作る。
-//
-// 表は読まない（「日付、時刻、担当、金額…」とセル名が延々続き意味が取れない）。
-// ただし **表の前後の文章は全部読む**。結論だけで打ち切ると、表の後ろに書かれた
-// 補足（「増加の中心は〜」など）が聞こえなくなる。
+// 表は読まない（セル名が延々続き意味が取れない）。表の前後の文章は全部読む。
 export function speechText(text: string): string {
   const parts: string[] = []
   let tableNoted = false
@@ -126,16 +147,20 @@ export function speechText(text: string): string {
         .replace(/[。．]$/, '')
     )
   }
-  return parts.join('。')
+  return forEar(parts.join('。'))
 }
 
-// iOSは長い発話を途中で切ることがあるので、句点で区切って小分けに流す。
-function chunk(text: string, max = 160): string[] {
-  const sentences = text.split(/(?<=[。！？])/)
+// 句点・読点で区切る。文の途中や数字の途中では切らない。
+// 機械的に文字数で切ると不自然な間が入って聞き取りにくくなる。
+function chunk(text: string, max = 90): string[] {
+  // まず句点で分け、長すぎるものだけ読点でさらに分ける
+  const sentences = text.split(/(?<=[。！？])/).flatMap((sen) =>
+    sen.length <= max ? [sen] : sen.split(/(?<=、)/)
+  )
   const out: string[] = []
   let cur = ''
   for (const sen of sentences) {
-    if ((cur + sen).length > max && cur) {
+    if (cur && (cur + sen).length > max) {
       out.push(cur)
       cur = sen
     } else cur += sen
@@ -177,6 +202,24 @@ export function speak(text: string, onEnd?: () => void, onBlocked?: () => void):
         onBlocked()
       }
     }, 600)
+  }
+}
+
+// 追加で読み上げる（今鳴っているものを止めない）。
+// 回答が届いた端から喋るために使う。止めてしまうと文が途切れる。
+export function speakChunk(text: string, onEnd?: () => void): void {
+  if (!speechOutputAvailable()) { onEnd?.(); return }
+  const body = forEar(text).trim()
+  if (!body) { onEnd?.(); return }
+  const v = japaneseVoice()
+  for (const piece of chunk(body)) {
+    const u = new SpeechSynthesisUtterance(piece)
+    u.lang = 'ja-JP'
+    if (v) u.voice = v
+    u.rate = 1.05
+    u.onend = () => onEnd?.()
+    u.onerror = () => onEnd?.()
+    window.speechSynthesis.speak(u)
   }
 }
 

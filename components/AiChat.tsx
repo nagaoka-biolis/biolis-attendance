@@ -10,6 +10,8 @@ import {
   speak,
   stopSpeaking,
   primeSpeech,
+  speakChunk,
+  speechText,
 } from '@/lib/voice'
 
 // BiOLiS AI のチャット画面。
@@ -337,26 +339,65 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
     const history = turns.slice(-8)
     setTurns((p) => [...p, { role: 'user', content: q }])
     setBusy(true)
+    // 空の回答枠を先に置き、届いた端から書き足していく
+    setTurns((p) => [...p, { role: 'assistant', content: '' }])
+    const wantVoice = voiceOn || spokenInput
+    let spokenUpTo = 0 // どこまで読み上げ済みか（読み上げ用テキストの文字数）
     try {
       const res = await fetch('/api/ai-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
         body: JSON.stringify({ message: q, history, model: model || undefined }),
       })
-      const j = await res.json().catch(() => null)
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
+        const j = await res.json().catch(() => null)
         setError(j?.error ?? '応答を取得できませんでした')
+        setTurns((p) => p.slice(0, -1))
       } else {
-        const answer = String(j.answer ?? '')
-        setTurns((p) => [...p, { role: 'assistant', content: answer }])
-        if ((voiceOn || spokenInput) && answer) {
-          setSpeaking(true)
-          setSpeechBlocked(null)
-          speak(answer, () => setSpeaking(false), () => setSpeechBlocked(answer))
+        if (wantVoice) { setSpeaking(true); setSpeechBlocked(null) }
+        let everSpoke = false
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let full = ''
+        for (;;) {
+          const { value, done } = await reader.read()
+          if (done) break
+          full += decoder.decode(value, { stream: true })
+          setTurns((p) => [...p.slice(0, -1), { role: 'assistant', content: full }])
+
+          // 文が終わった分だけ、その場で読み上げる（全部書き終わるのを待たない）
+          if (wantVoice) {
+            const ready = speechText(full)
+            const cut = Math.max(
+              ready.lastIndexOf('。'),
+              ready.lastIndexOf('！'),
+              ready.lastIndexOf('？')
+            )
+            if (cut + 1 > spokenUpTo) {
+              speakChunk(ready.slice(spokenUpTo, cut + 1))
+              spokenUpTo = cut + 1
+              if (speechOutputAvailable() && window.speechSynthesis.speaking) everSpoke = true
+            }
+          }
+        }
+        // 最後に残った分（句点で終わっていない末尾）を読む
+        if (wantVoice) {
+          const ready = speechText(full)
+          if (ready.length > spokenUpTo) {
+            speakChunk(ready.slice(spokenUpTo), () => setSpeaking(false))
+          } else setSpeaking(false)
+          // 一度も鳴らなかった＝端末に止められている。押せば鳴るボタンを出す。
+          setTimeout(() => {
+            if (!everSpoke && speechOutputAvailable() && !window.speechSynthesis.speaking) {
+              setSpeaking(false)
+              setSpeechBlocked(full)
+            }
+          }, 700)
         }
       }
     } catch {
       setError('通信に失敗しました')
+      setTurns((p) => (p[p.length - 1]?.content === '' ? p.slice(0, -1) : p))
     } finally {
       setBusy(false)
     }
