@@ -56,10 +56,17 @@ export async function loadDoctorSalesAll(admin: any): Promise<Map<string, Doctor
     .select('key,value')
     .like('key', 'sales_csv:スタッフ別売上%')
 
+  // 医師別売上のファイル名にはエクスポートした日が入る（スタッフ別売上_20260901）。
+  // 月の途中で毎日出すと同じ月のファイルが何本も溜まるため、
+  // **キー名が一番新しいもの＝最後に出したもの**を採る。
+  // 「最後に読めたもの」にすると、どれが使われるか運任せになる。
+  const rows = ((data ?? []) as { key: string; value: string }[]).sort((a, b) =>
+    b.key.localeCompare(a.key)
+  )
   const byMonth = new Map<string, DoctorSalesCsv>()
-  for (const r of (data ?? []) as { key: string; value: string }[]) {
+  for (const r of rows) {
     const csv = parseDoctorSalesCSV(r.value)
-    if (csv) byMonth.set(csv.month, csv)
+    if (csv && !byMonth.has(csv.month)) byMonth.set(csv.month, csv)
   }
   return byMonth
 }
