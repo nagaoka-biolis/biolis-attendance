@@ -99,22 +99,49 @@ export function isSpeaking(): boolean {
   return speechOutputAvailable() && window.speechSynthesis.speaking
 }
 
-// 読み上げるのは「結論」だけにする。
-// 表を頭から読み上げると「日付、時刻、担当、金額…」とセル名が延々続き、
-// 何を言っているのか分からなくなる。回答は必ず結論から書かせているので、
-// 表や箇条書きが始まる手前までを読む。
-export function speechLead(text: string): string {
-  const lines = text.split('\n')
-  const lead: string[] = []
-  for (const line of lines) {
-    if (/^\s*\|/.test(line)) break // 表
-    if (/^\s*#{1,4}\s/.test(line)) break // 見出し
-    if (/^\s*[-*]\s/.test(line)) break // 箇条書き
-    if (line.trim()) lead.push(line.trim())
+// 読み上げ用のテキストを作る。
+//
+// 表は読まない（「日付、時刻、担当、金額…」とセル名が延々続き意味が取れない）。
+// ただし **表の前後の文章は全部読む**。結論だけで打ち切ると、表の後ろに書かれた
+// 補足（「増加の中心は〜」など）が聞こえなくなる。
+export function speechText(text: string): string {
+  const parts: string[] = []
+  let tableNoted = false
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line) continue
+    if (/^\|/.test(line)) {
+      if (!tableNoted) {
+        parts.push('詳しい表は画面をご覧ください')
+        tableNoted = true
+      }
+      continue
+    }
+    tableNoted = false
+    parts.push(
+      line
+        .replace(/^#{1,4}\s*/, '')
+        .replace(/^[-*]\s+/, '')
+        .replace(/\*\*/g, '')
+        .replace(/[。．]$/, '')
+    )
   }
-  const body = lead.join(' ').replace(/\*\*/g, '').trim()
-  // 結論が書かれていない回答のときだけ、全体を短く読む
-  return body || stripForSpeech(text).slice(0, 200)
+  return parts.join('。')
+}
+
+// iOSは長い発話を途中で切ることがあるので、句点で区切って小分けに流す。
+function chunk(text: string, max = 160): string[] {
+  const sentences = text.split(/(?<=[。！？])/)
+  const out: string[] = []
+  let cur = ''
+  for (const sen of sentences) {
+    if ((cur + sen).length > max && cur) {
+      out.push(cur)
+      cur = sen
+    } else cur += sen
+  }
+  if (cur.trim()) out.push(cur)
+  return out
 }
 
 // onBlocked: 呼んだのに音が始まらなかったとき（iOSで操作から離れている場合など）。
@@ -125,17 +152,22 @@ export function speak(text: string, onEnd?: () => void, onBlocked?: () => void):
   if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
     window.speechSynthesis.cancel()
   }
-  const body = speechLead(text)
+  const body = speechText(text)
   if (!body) { onEnd?.(); return }
 
-  const u = new SpeechSynthesisUtterance(body)
-  u.lang = 'ja-JP'
   const v = japaneseVoice()
-  if (v) u.voice = v
-  u.rate = 1.05
-  u.onend = () => onEnd?.()
-  u.onerror = () => onEnd?.()
-  window.speechSynthesis.speak(u)
+  const pieces = chunk(body)
+  pieces.forEach((piece, i) => {
+    const u = new SpeechSynthesisUtterance(piece)
+    u.lang = 'ja-JP'
+    if (v) u.voice = v
+    u.rate = 1.05
+    if (i === pieces.length - 1) {
+      u.onend = () => onEnd?.()
+      u.onerror = () => onEnd?.()
+    }
+    window.speechSynthesis.speak(u)
+  })
 
   // 実際に鳴り始めたか確かめる。始まっていなければ端末に止められている。
   if (onBlocked) {
