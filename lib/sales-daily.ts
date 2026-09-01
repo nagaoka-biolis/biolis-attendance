@@ -46,6 +46,9 @@ export function maskDailySalesCSV(text: string): string {
 
 export type DailyItem = { name: string; qty: number; amount: number }
 
+// 会計1件（患者1人分の精算）。担当医の割り出しに使う。
+export type Checkout = { no: string; time: string; amount: number; items: DailyItem[] }
+
 export type DailySales = {
   date: string // YYYY-MM-DD
   初診: number
@@ -53,6 +56,7 @@ export type DailySales = {
   患者数: number
   売上: number
   items: DailyItem[] // 金額の大きい順
+  checkouts: Checkout[] // 会計ごと（この単位でなら担当医を割り出せる）
 }
 
 // key は 'sales_csv:日次売上_20260821' 形式。対象日はここから取る。
@@ -72,18 +76,29 @@ export function parseDailySalesCSV(text: string, key: string): DailySales | null
   const 患者数 = num(today?.[3])
   const 売上 = num(today?.[4])
 
-  // 施術の行（施術区分が「施」）を集める。同じ施術が複数回あればまとめる。
+  // 明細は「会計の行（No・時間・金額）」に「施術の行」がぶら下がる形。
+  // 会計単位でまとめておくと、医師別売上の金額と突き合わせて担当を割り出せる。
+  const checkouts: Checkout[] = []
   const acc = new Map<string, DailyItem>()
   for (const r of rows.slice(h + 1)) {
+    if (r[0] && /^\d+$/.test(r[0])) {
+      checkouts.push({ no: r[0], time: r[1] ?? '', amount: num(r[10]), items: [] })
+      continue
+    }
     if (r[4] !== '施' || !r[5]) continue
-    const name = r[5].replace(/　/g, ' ').trim()
-    const cur = acc.get(name) ?? { name, qty: 0, amount: 0 }
-    cur.qty += num(r[6]) || 1
-    cur.amount += num(r[7])
-    acc.set(name, cur)
+    const item = {
+      name: r[5].replace(/　/g, ' ').trim(),
+      qty: num(r[6]) || 1,
+      amount: num(r[7]),
+    }
+    checkouts[checkouts.length - 1]?.items.push(item)
+    const cur = acc.get(item.name) ?? { name: item.name, qty: 0, amount: 0 }
+    cur.qty += item.qty
+    cur.amount += item.amount
+    acc.set(item.name, cur)
   }
   const items = [...acc.values()].sort((a, b) => b.amount - a.amount)
 
   if (患者数 === 0 && items.length === 0) return null
-  return { date, 初診, 再診, 患者数, 売上, items }
+  return { date, 初診, 再診, 患者数, 売上, items, checkouts }
 }

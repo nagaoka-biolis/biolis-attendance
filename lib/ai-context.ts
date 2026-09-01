@@ -20,6 +20,7 @@ import {
 } from './sales-category'
 import { parseMonthlySalesCSV, type MonthlySalesCsv } from './sales-monthly'
 import { parseDailySalesCSV, type DailySales } from './sales-daily'
+import { attributeCheckouts } from './attribution'
 
 const yen = (n: number) => n.toLocaleString('ja-JP')
 
@@ -119,24 +120,50 @@ export async function loadDailySales(admin: any, months: string[]): Promise<Dail
 }
 
 // 日ごとの施術内容を、AIが読める表テキストにする。
-// 全部載せると長くなるので、金額の大きい順に上位5件までにする。
-function renderDaily(days: DailySales[]): string {
+//
+// ACUSISは施術ごとの担当医を出さないが、会計の金額と医師別売上の金額を
+// 突き合わせると多くの日で担当が復元できる（lib/attribution.ts）。
+// 決められなかった会計は「不明」のままにする。埋めると数字の信用が落ちる。
+function renderDaily(days: DailySales[], doctorByDate: Map<string, DoctorSalesCsv['days'][number]>): string {
   const lines: string[] = []
-  lines.push('## 日ごとの施術内容（ACUSIS「日次売上」より）')
+  let resolved = 0
+  let unknown = 0
+  const rows: string[] = []
+
+  for (const d of days) {
+    const dd = doctorByDate.get(d.date)
+    const docs = dd
+      ? Object.entries(dd.byDoctor).map(([label, c]) => ({
+          label,
+          amount: c.amount,
+          patients: c.patients,
+        }))
+      : []
+    const att = attributeCheckouts(d.checkouts, docs)
+
+    for (const c of d.checkouts) {
+      if (c.amount === 0 && c.items.length === 0) continue
+      const who = att.byCheckout.get(c.no)
+      if (who) resolved++
+      else unknown++
+      const detail = c.items.map((i) => `${i.name}${yen(i.amount)}円`).join('、')
+      rows.push(
+        `| ${d.date}(${weekday(d.date)}) | ${c.time} | ${who ?? '不明'} | ${yen(c.amount)} | ${detail} |`
+      )
+    }
+  }
+
+  lines.push('## 日ごとの施術内容（会計1件＝患者1人分）')
   lines.push(
     '患者名とカルテ番号は保存時に削除済みで、ここには含まれない。' +
-      '施術は金額の大きい順に最大5件まで（それ以上ある日は「ほかN件」と記す）。'
+      '担当は、会計の金額と医師別売上の金額を突き合わせて割り出したもの。' +
+      `一意に決まらなかったものは「不明」（判明 ${resolved}件 / 不明 ${unknown}件）。` +
+      '「不明」の会計について担当を聞かれたら、分からないと答えること。'
   )
   lines.push('')
-  lines.push('| 日付 | 売上(円) | 初診 | 再診 | その日の施術 |')
+  lines.push('| 日付 | 時刻 | 担当 | 金額(円) | 施術 |')
   lines.push('|---|---|---|---|---|')
-  for (const d of days) {
-    const top = d.items.slice(0, 5).map((i) => `${i.name}${yen(i.amount)}円`).join('、')
-    const rest = d.items.length > 5 ? `、ほか${d.items.length - 5}件` : ''
-    lines.push(
-      `| ${d.date}(${weekday(d.date)}) | ${yen(d.売上)} | ${d.初診} | ${d.再診} | ${top}${rest} |`
-    )
-  }
+  lines.push(...rows)
   return lines.join('\n')
 }
 
@@ -303,7 +330,13 @@ export async function buildContext(
 
     // 日ごとの施術内容（手術がいつあったか等はここでしか分からない）
     const daily = await loadDailySales(admin, months.length ? months : targets)
-    if (daily.length) sections.push(renderDaily(daily))
+    if (daily.length) {
+      const doctorByDate = new Map<string, DoctorSalesCsv['days'][number]>()
+      for (const m of targets) {
+        for (const dd of byMonth.get(m)?.days ?? []) doctorByDate.set(dd.date, dd)
+      }
+      sections.push(renderDaily(daily, doctorByDate))
+    }
 
     // 施術メニューの売れ行き
     const cat = await loadCategorySales(admin)
@@ -321,31 +354,33 @@ export async function buildContext(
 export const SYSTEM_PROMPT = `あなたは美容クリニック「BiOLiS」の経営を補佐するアシスタントです。
 利用者は院の経営を見る立場の人（CDO・CEO）だけです。
 
-## 答え方
-- 日本語で、結論から簡潔に答える。前置きや復唱はしない。
-- 数字を答えるときは必ず単位（円・人・日）を付ける。
-- 表が有効なときは表で示す。長い散文にしない。
-- 聞かれたことに答えたうえで、材料から確実に言える示唆があれば一言添える。憶測は書かない。
+## 答え方（最重要）
+- **必ず結論から書く。1文目に答えそのものを書く。** 音声で聞く人には
+  この1文目だけが読み上げられるので、ここだけで用が足りるように書く。
+- 全体は短く。**結論1〜2文＋必要なら表**。それ以上は書かない。
+- 前置き・質問の言い換え・最後のまとめ、いずれも書かない。
+- 表は「並べたほうが分かるとき」だけ使う。**列は4つまで、行は10行まで。**
+  1〜2件しかないものを表にしない（文で書く）。多いときは上位だけ載せて
+  「ほかN件」と書く。
+- 箇条書きは3項目まで。
 
 ## 絶対に守ること
 - **与えられた資料に無いことは答えない。** 推測で数字を作らない。
   資料に無ければ「そのデータはまだ取り込まれていません」と答える。
 - **自分で計算し直さない。** 合計・平均・単価は資料に計算済みの値がある。
-  それを使う。資料に無い切り口を聞かれたときだけ、資料の数字から素直に足し引きし、
-  「概算です」と明示する。
+  資料に無い切り口のときだけ素直に足し引きし、「概算です」と添える。
 - 患者の個人情報は資料に含めていない。聞かれても答えられないと伝える。
 
 ## 資料を読むときの注意
-- 売上は電子カルテ(ACUSIS)の「担当」割当に基づく。担当の割当が実態とずれている
-  可能性が指摘されているため、特定の医師の数字が不自然に大きい/小さいときは、
-  断定せず「担当割当の確認が必要かもしれない」と添える。
+- 「日ごとの施術内容」の担当は、会計金額と医師別売上を突き合わせて割り出したもの。
+  「不明」となっている会計の担当は、分からないと答える。推測しない。
 - 「担当未割当」は、売上は立ったが担当医が設定されていない分。
-- 「昼枠」と「夜枠」（例: 鑓水Dr と 鑓水Dr(夜)）は同じ医師。出勤日あたりの効率を
-  見るときは、まとめた表のほうを使う。
-- 「出勤日数(シフト)」は勤怠アプリのシフト表由来で、ACUSISの売上とは別のシステム。
-  氏名で突き合わせているため、照合できていない場合は「（未照合）」と出る。
-- 施術メニュー別の資料には、**施術そのものではない項目も混ざっている**
+- 「昼枠」と「夜枠」（例: 鑓水Dr と 鑓水Dr(夜)）は同じ医師。出勤日あたりの
+  効率を見るときは、まとめた表のほうを使う。
+- 「出勤日数(シフト)」は勤怠アプリのシフト表由来で、ACUSISとは別のシステム。
+  照合できていない場合は「（未照合）」と出る。
+- 施術メニュー別の資料には、施術そのものではない項目も混ざっている
   （麻酔・指名料・夜間診察料・カウンセリング・スタッフ価格など）。
-  「人気の施術」を聞かれたときは、これらを施術と同列に扱わず、必要なら分けて示す。
-- 金額の多いメニューと、数量の多いメニューは一致しない。
-  「売れている」が金額の話か件数の話かが曖昧なときは、両方を示す。`
+  「人気の施術」を聞かれたときは、これらを施術と同列に扱わない。
+- 金額の多いメニューと数量の多いメニューは一致しない。どちらの話か曖昧なときは
+  一方に決めて答え、もう一方は1行で添える。`

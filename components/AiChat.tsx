@@ -190,6 +190,8 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
   const [voiceOn, setVoiceOn] = useState(variant === 'full')
   const [listening, setListening] = useState(false) // マイクで聞き取り中か
   const [speaking, setSpeaking] = useState(false) // 読み上げ中か
+  // 端末に読み上げを止められたとき（iOSで操作から離れている場合など）に立てる
+  const [speechBlocked, setSpeechBlocked] = useState<string | null>(null)
   // 音声が使えるかはブラウザ次第で、途中で変わらない。
   // サーバ側描画では false を返して、画面が食い違わないようにする。
   const canListen = useSyncExternalStore(noSubscribe, speechInputAvailable, () => false)
@@ -344,7 +346,8 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
         setTurns((p) => [...p, { role: 'assistant', content: answer }])
         if ((voiceOn || spokenInput) && answer) {
           setSpeaking(true)
-          speak(answer, () => setSpeaking(false))
+          setSpeechBlocked(null)
+          speak(answer, () => setSpeaking(false), () => setSpeechBlocked(answer))
         }
       }
     } catch {
@@ -497,6 +500,25 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
               </div>
             </div>
           )
+        )}
+
+        {speechBlocked && (
+          <button
+            onClick={() => {
+              const t = speechBlocked
+              setSpeechBlocked(null)
+              setSpeaking(true)
+              speak(t, () => setSpeaking(false))
+            }}
+            className="w-full text-sm px-3 py-2 rounded-xl border mb-3"
+            style={{
+              borderColor: 'var(--gold)',
+              color: 'var(--gold)',
+              background: dark ? 'rgba(201,168,76,0.08)' : '#fffdf6',
+            }}
+          >
+            🔊 タップして聞く（端末の設定で自動再生が止められました）
+          </button>
         )}
 
         {busy && (

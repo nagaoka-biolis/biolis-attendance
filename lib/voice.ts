@@ -83,8 +83,10 @@ let primed = false
 export function primeSpeech(): void {
   if (primed || !speechOutputAvailable()) return
   try {
-    const u = new SpeechSynthesisUtterance(' ')
-    u.volume = 0
+    // 無音(volume 0)では解錠されない端末があるため、極小音量の短い発話を使う
+    const u = new SpeechSynthesisUtterance('。')
+    u.volume = 0.01
+    u.rate = 2
     u.lang = 'ja-JP'
     window.speechSynthesis.speak(u)
     primed = true
@@ -93,10 +95,37 @@ export function primeSpeech(): void {
   }
 }
 
-export function speak(text: string, onEnd?: () => void): void {
+export function isSpeaking(): boolean {
+  return speechOutputAvailable() && window.speechSynthesis.speaking
+}
+
+// 読み上げるのは「結論」だけにする。
+// 表を頭から読み上げると「日付、時刻、担当、金額…」とセル名が延々続き、
+// 何を言っているのか分からなくなる。回答は必ず結論から書かせているので、
+// 表や箇条書きが始まる手前までを読む。
+export function speechLead(text: string): string {
+  const lines = text.split('\n')
+  const lead: string[] = []
+  for (const line of lines) {
+    if (/^\s*\|/.test(line)) break // 表
+    if (/^\s*#{1,4}\s/.test(line)) break // 見出し
+    if (/^\s*[-*]\s/.test(line)) break // 箇条書き
+    if (line.trim()) lead.push(line.trim())
+  }
+  const body = lead.join(' ').replace(/\*\*/g, '').trim()
+  // 結論が書かれていない回答のときだけ、全体を短く読む
+  return body || stripForSpeech(text).slice(0, 200)
+}
+
+// onBlocked: 呼んだのに音が始まらなかったとき（iOSで操作から離れている場合など）。
+// 呼び出し側は「タップして聞く」ボタンを出して、確実に鳴らせる逃げ道を用意する。
+export function speak(text: string, onEnd?: () => void, onBlocked?: () => void): void {
   if (!speechOutputAvailable()) { onEnd?.(); return }
-  window.speechSynthesis.cancel()
-  const body = stripForSpeech(text)
+  // iOSでは直前の cancel() が原因で無音になることがあるため、鳴っている時だけ止める
+  if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+    window.speechSynthesis.cancel()
+  }
+  const body = speechLead(text)
   if (!body) { onEnd?.(); return }
 
   const u = new SpeechSynthesisUtterance(body)
@@ -107,6 +136,16 @@ export function speak(text: string, onEnd?: () => void): void {
   u.onend = () => onEnd?.()
   u.onerror = () => onEnd?.()
   window.speechSynthesis.speak(u)
+
+  // 実際に鳴り始めたか確かめる。始まっていなければ端末に止められている。
+  if (onBlocked) {
+    setTimeout(() => {
+      if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+        onEnd?.()
+        onBlocked()
+      }
+    }, 600)
+  }
 }
 
 export function stopSpeaking(): void {
