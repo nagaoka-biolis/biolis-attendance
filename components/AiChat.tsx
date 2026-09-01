@@ -180,6 +180,7 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
   const [ready, setReady] = useState(false)
   const [allowed, setAllowed] = useState(false)
   const [info, setInfo] = useState<{ 売上の月?: string[]; APIキー設定済み?: boolean } | null>(null)
+  const [denyReason, setDenyReason] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
 
   // 音声まわり
@@ -230,28 +231,52 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
     return session?.access_token ?? ''
   }, [])
 
-  // 起動時に権限と材料の状況を確認（AIは呼ばないので費用はかからない）
+  // 起動時に権限と材料の状況を確認（AIは呼ばないので費用はかからない）。
+  // ログイン情報の復元が間に合わないことがあるので、認証の変化も拾って読み直す。
+  // 「権限なし」と「通信失敗」を混同しないよう、理由を分けて持つ。
   useEffect(() => {
-    const init = async () => {
+    let done = false
+    const load = async (t: string) => {
+      if (done) return
       try {
-        const t = await token()
-        if (!t) return
         const res = await fetch('/api/ai-chat', { headers: { Authorization: `Bearer ${t}` } })
         if (res.ok) {
           const j = await res.json().catch(() => null)
           setAllowed(true)
           setInfo(j)
           setModel(String(j?.既定のモデル ?? ''))
+          setDenyReason(null)
+        } else if (res.status === 403) {
+          setDenyReason('権限がありません')
+        } else if (res.status === 401) {
+          setDenyReason('ログインの確認ができませんでした。画面を更新してください')
+        } else {
+          const j = await res.json().catch(() => null)
+          setDenyReason(`読み込みに失敗しました（${res.status}）${j?.error ? `：${j.error}` : ''}`)
         }
+        done = true
       } catch {
-        setError('接続できませんでした。通信環境を確認して画面を更新してください')
+        setDenyReason('接続できませんでした。通信環境を確認して画面を更新してください')
       } finally {
-        // 失敗しても「読み込み中…」のままにしない
         setReady(true)
       }
     }
-    init()
-  }, [token])
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.access_token) load(session.access_token)
+    })
+    // 直後はセッションが復元されていないことがあるため、変化も拾う
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      if (session?.access_token) load(session.access_token)
+    })
+    // 認証イベントが来ないまま止まらないよう、数秒で打ち切る
+    const timer = setTimeout(() => setReady(true), 6000)
+    return () => {
+      done = true
+      clearTimeout(timer)
+      sub.subscription.unsubscribe()
+    }
+  }, [])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -346,11 +371,22 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-16 px-6 text-center">
         <p className="font-bold text-sm" style={{ color: dark ? '#fff' : 'var(--navy)' }}>
-          BiOLiS AI の利用権限がありません
+          {denyReason === '権限がありません'
+            ? 'BiOLiS AI の利用権限がありません'
+            : 'BiOLiS AI を開けませんでした'}
         </p>
         <p className="text-xs" style={{ color: 'var(--gray)' }}>
-          経営数字を扱うため、利用者を限定しています。必要な場合は管理者にご連絡ください。
+          {denyReason === '権限がありません'
+            ? '経営数字を扱うため、利用者を限定しています。必要な場合は管理者にご連絡ください。'
+            : (denyReason ?? '読み込めませんでした。画面を更新してください')}
         </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="text-xs px-4 py-2 rounded-full border mt-1"
+          style={{ borderColor: dark ? 'rgba(255,255,255,0.25)' : 'var(--gray-light)', color: dark ? '#fff' : 'var(--navy)' }}
+        >
+          画面を更新
+        </button>
       </div>
     )
   }
