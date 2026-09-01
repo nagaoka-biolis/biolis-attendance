@@ -183,7 +183,9 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
   const endRef = useRef<HTMLDivElement>(null)
 
   // 音声まわり
-  const [voiceOn, setVoiceOn] = useState(false) // 回答を読み上げるか
+  // 回答を読み上げるか。全画面(/ai)は声で使う画面なので既定ON、
+  // 管理画面に埋め込んだ小窓は他の作業中に喋り出さないよう既定OFF。
+  const [voiceOn, setVoiceOn] = useState(variant === 'full')
   const [listening, setListening] = useState(false) // マイクで聞き取り中か
   const [speaking, setSpeaking] = useState(false) // 読み上げ中か
   // 音声が使えるかはブラウザ次第で、途中で変わらない。
@@ -262,7 +264,7 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
     r.start()
   }
 
-  const send = async (text: string) => {
+  const send = async (text: string, spokenInput = false) => {
     const q = text.trim()
     if (!q || busy) return
     setError(null)
@@ -282,7 +284,7 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
       } else {
         const answer = String(j.answer ?? '')
         setTurns((p) => [...p, { role: 'assistant', content: answer }])
-        if (voiceOn && answer) {
+        if ((voiceOn || spokenInput) && answer) {
           setSpeaking(true)
           speak(answer, () => setSpeaking(false))
         }
@@ -296,7 +298,7 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
 
   // マイクの終了時から send を呼べるようにしておく
   useEffect(() => {
-    sendRef.current = (t: string) => { void send(t) }
+    sendRef.current = (t: string) => { void send(t, true) }
   })
 
   const dark = variant === 'full'
