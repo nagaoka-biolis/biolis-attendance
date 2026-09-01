@@ -151,6 +151,8 @@ export async function GET(req: NextRequest) {
   const ctx = await buildContext(auth.admin, auth.scope)
   return NextResponse.json({
     ok: true,
+    // 画面側が持っている版と比べ、古ければ更新を促すために返す
+    buildId: process.env.NEXT_PUBLIC_BUILD_ID ?? '',
     既定のモデル: await getSetting('ai_model') ?? process.env.ANTHROPIC_MODEL ?? FALLBACK_MODEL,
     APIキー設定済み: Boolean(process.env.ANTHROPIC_API_KEY),
     scope: auth.scope,

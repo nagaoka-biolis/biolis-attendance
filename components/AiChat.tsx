@@ -182,6 +182,9 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
   const [allowed, setAllowed] = useState(false)
   const [info, setInfo] = useState<{ 売上の月?: string[]; APIキー設定済み?: boolean } | null>(null)
   const [denyReason, setDenyReason] = useState<string | null>(null)
+  // 開いたままの画面が古いままだと、直したはずの不具合が直って見えない。
+  // サーバの版と自分の版を比べて、違えば更新を促す。
+  const [stale, setStale] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
 
   // 音声まわり
@@ -249,6 +252,8 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
           setInfo(j)
           setModel(String(j?.既定のモデル ?? ''))
           setDenyReason(null)
+          const mine = process.env.NEXT_PUBLIC_BUILD_ID ?? ''
+          if (j?.buildId && mine && j.buildId !== mine) setStale(true)
         } else if (res.status === 403) {
           setDenyReason('権限がありません')
         } else if (res.status === 401) {
@@ -408,6 +413,15 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
 
       {/* 会話 */}
       <div className={`flex-1 overflow-y-auto px-4 ${dark ? 'py-4' : 'py-2'}`}>
+        {stale && (
+          <button
+            onClick={() => window.location.reload()}
+            className="w-full text-xs px-3 py-2 rounded-xl border mb-3"
+            style={{ borderColor: 'var(--gold)', color: 'var(--gold)', background: dark ? 'rgba(201,168,76,0.08)' : '#fffdf6' }}
+          >
+            新しいバージョンがあります。タップして更新
+          </button>
+        )}
         {/* CSVのまとめ取り込み（管理画面の小窓にだけ。会長の全画面には出さない） */}
         {!dark && (
           <div
