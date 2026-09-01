@@ -75,6 +75,24 @@ function japaneseVoice(): SpeechSynthesisVoice | null {
   return voices.find((v) => v.lang === 'ja-JP') ?? voices.find((v) => v.lang?.startsWith('ja')) ?? null
 }
 
+// iOS（Chromeを含む。中身はすべてSafari）は「ユーザーが触った直後」でないと
+// 音声を出せない。回答が返るのは操作から数秒後なので、そのままだと無音になる。
+// 対策として、送信ボタンやマイクを押したその瞬間に空の発話を1回流し、
+// 音声を使える状態にしておく（一度通せば、以降はあとから喋らせても鳴る）。
+let primed = false
+export function primeSpeech(): void {
+  if (primed || !speechOutputAvailable()) return
+  try {
+    const u = new SpeechSynthesisUtterance(' ')
+    u.volume = 0
+    u.lang = 'ja-JP'
+    window.speechSynthesis.speak(u)
+    primed = true
+  } catch {
+    // 使えない環境では諦める（読み上げボタンから手動で鳴らせる）
+  }
+}
+
 export function speak(text: string, onEnd?: () => void): void {
   if (!speechOutputAvailable()) { onEnd?.(); return }
   window.speechSynthesis.cancel()

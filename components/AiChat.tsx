@@ -9,6 +9,7 @@ import {
   speechOutputAvailable,
   speak,
   stopSpeaking,
+  primeSpeech,
 } from '@/lib/voice'
 
 // BiOLiS AI のチャット画面。
@@ -287,6 +288,7 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
 
   // マイクの開始／停止。話し終わるとそのまま質問として送る。
   const toggleMic = () => {
+    primeSpeech()
     if (listening) {
       recogRef.current?.stop()
       return
@@ -321,6 +323,8 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
   const send = async (text: string, spokenInput = false) => {
     const q = text.trim()
     if (!q || busy) return
+    // iOSは操作した瞬間しか喋れないため、ここで音声を使える状態にしておく
+    primeSpeech()
     setError(null)
     setInput('')
     const history = turns.slice(-8)
@@ -474,6 +478,22 @@ export default function AiChat({ variant = 'full' }: { variant?: 'full' | 'panel
                 style={{ background: dark ? 'rgba(255,255,255,0.06)' : '#fff', color: dark ? '#fff' : 'var(--navy)' }}
               >
                 <Markdown text={t.content} />
+                {canSpeak && (
+                  <button
+                    onClick={() => {
+                      stopSpeaking()
+                      setSpeaking(true)
+                      speak(t.content, () => setSpeaking(false))
+                    }}
+                    className="text-[11px] mt-2 px-2 py-0.5 rounded-full border"
+                    style={{
+                      borderColor: dark ? 'rgba(255,255,255,0.25)' : 'var(--gray-light)',
+                      color: 'var(--gray)',
+                    }}
+                  >
+                    🔊 読み上げる
+                  </button>
+                )}
               </div>
             </div>
           )
