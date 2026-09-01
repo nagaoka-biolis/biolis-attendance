@@ -103,6 +103,58 @@ export function attributeCheckouts(
     for (let i = pool.length - 1; i >= 0; i--) if (idx.has(i)) pool.splice(i, 1)
   }
 
+  // --- 3回目: 残った会計を「施術1行ずつ」に分解して照合 ---
+  // 1つの会計の中で施術ごとに担当が違う日があり、会計をまるごと1人に
+  // 割り当てる方法では解けない。施術単位まで下ろすと解ける場合がある。
+  // （ただし施術単位だけでやると同額の施術が多く曖昧になるため、
+  //   会計単位で解けなかった分にだけ適用する）
+  if (pool.length > 0) {
+    const used2 = new Map<string, number>()
+    for (const [no, label] of byCheckout) {
+      const c = paid.find((x) => x.no === no)
+      if (c) used2.set(label, (used2.get(label) ?? 0) + c.amount)
+    }
+    const remain2 = doctors
+      .map((d) => ({ ...d, amount: d.amount - (used2.get(d.label) ?? 0) }))
+      .filter((d) => d.amount > 0)
+      .sort((a, b) => b.amount - a.amount)
+
+    type Line = { amount: number; no: string }
+    let lines: Line[] = pool.flatMap((c) =>
+      c.items.filter((i) => i.amount > 0).map((i) => ({ amount: i.amount, no: c.no }))
+    )
+    const lineOwner = new Map<string, Set<string>>() // 会計No → 付いた医師の集合
+
+    for (const d of remain2) {
+      if (lines.length === 0) break
+      const { solutions, tooMany } = findAnySize(
+        lines.map((l) => ({ no: l.no, time: '', amount: l.amount, items: [] })),
+        d.amount,
+        12
+      )
+      if (tooMany || solutions.length !== 1) continue
+      const idx = new Set(solutions[0])
+      solutions[0].forEach((i) => {
+        const set = lineOwner.get(lines[i].no) ?? new Set<string>()
+        set.add(d.label)
+        lineOwner.set(lines[i].no, set)
+      })
+      lines = lines.filter((_, i) => !idx.has(i))
+    }
+
+    // その会計の施術がすべて同じ医師に付いたときだけ、会計の担当として採る
+    for (let i = pool.length - 1; i >= 0; i--) {
+      const c = pool[i]
+      const owners = lineOwner.get(c.no)
+      const paidLines = c.items.filter((it) => it.amount > 0).length
+      const stillLeft = lines.filter((l) => l.no === c.no).length
+      if (owners && owners.size === 1 && paidLines > 0 && stillLeft === 0) {
+        byCheckout.set(c.no, [...owners][0])
+        pool.splice(i, 1)
+      }
+    }
+  }
+
   return { byCheckout, unresolved: pool.length, ambiguous }
 }
 
