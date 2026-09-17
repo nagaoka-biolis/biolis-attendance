@@ -5,7 +5,18 @@ export const runtime = 'nodejs'
 
 type Shift = { user_id: string; date: string; start_time: string | null; end_time: string | null; kind: string }
 type Att = { user_id: string; type: string; timestamp: string }
-type Rate = { user_id: string; effective_from: string | null; employ_daily: number; contract_daily: number; monthly_allowance: number; both_contracts: boolean; contractor_name: string | null; note: string | null }
+type Rate = { user_id: string; effective_from: string | null; employ_daily: number; contract_daily: number; monthly_allowance: number; both_contracts: boolean; contractor_name: string | null; note: string | null; short_time_mode?: string | null; full_day_hours?: number | null }
+
+// 'HH:MM' → 分
+const toMin = (t: string): number => { const [h, m] = t.split(':').map(Number); return (h || 0) * 60 + (m || 0) }
+// シフトの拘束時間から法定休憩を引いた「働いた時間(分)」。6h以下=0/6h超8h以下=45/8h超=60。
+function workedMinFromShift(start: string | null, end: string | null): number | null {
+  if (!start || !end) return null
+  const span = toMin(end) - toMin(start)
+  if (span <= 0) return null
+  const brk = span <= 360 ? 0 : span <= 480 ? 45 : 60
+  return span - brk
+}
 type Adj = { user_id: string; date: string; kind: string; contract: string; amount: number; reason: string | null }
 
 export async function POST(req: NextRequest) {
@@ -84,6 +95,19 @@ export async function POST(req: NextRequest) {
       const daytime = sh ? (!sh.start_time || sh.start_time < '19:00') : false
       let employ = (sh && daytime) ? r.employ_daily : 0
       let contract = (sh && r.both_contracts && r.contract_daily > 0) ? r.contract_daily : 0
+      // 短時間勤務の按分（先生ごと・シフト基準）。しきい値未満なら 日給/日額 × (働いた時間/8)。
+      if (r.short_time_mode === 'prorate' && sh) {
+        const wm = workedMinFromShift(sh.start_time, sh.end_time)
+        if (wm != null) {
+          const workedH = wm / 60
+          const threshold = r.full_day_hours ?? 8
+          if (workedH < threshold) {
+            const ratio = Math.min(workedH / 8, 1)
+            employ = Math.round(employ * ratio)
+            contract = Math.round(contract * ratio)
+          }
+        }
+      }
       // 個別調整
       for (const a of aList.filter(a => a.date === d)) {
         if (a.kind === 'override') { if (a.contract === 'employ') employ = a.amount; else contract = a.amount }
