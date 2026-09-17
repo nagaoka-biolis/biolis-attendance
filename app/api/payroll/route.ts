@@ -5,7 +5,7 @@ export const runtime = 'nodejs'
 
 type Shift = { user_id: string; date: string; start_time: string | null; end_time: string | null; kind: string }
 type Att = { user_id: string; type: string; timestamp: string }
-type Rate = { user_id: string; effective_from: string | null; employ_daily: number; contract_daily: number; monthly_allowance: number; both_contracts: boolean; contractor_name: string | null; note: string | null; short_time_mode?: string | null; full_day_hours?: number | null }
+type Rate = { user_id: string; effective_from: string | null; employ_daily: number; contract_daily: number; monthly_allowance: number; both_contracts: boolean; contractor_name: string | null; note: string | null; short_time_mode?: string | null; full_day_hours?: number | null; commute_round_trip?: number | null; commute_cap?: number | null }
 
 // 'HH:MM' → 分
 const toMin = (t: string): number => { const [h, m] = t.split(':').map(Number); return (h || 0) * 60 + (m || 0) }
@@ -134,16 +134,21 @@ export async function POST(req: NextRequest) {
     const allowance = worked ? (latest.monthly_allowance || 0) : 0
     contractTotal += allowance // 手当は委託(税込)に乗せる
     const contractTax = Math.round(contractTotal * 10 / 110)
-    const total = employTotal + contractTotal + transport
+    // 通勤手当（定期）＝ 往復額/日 × 出勤日数（月上限つき）。領収書の実費交通費とは別ライン。
+    const commuteFixed = latest.commute_round_trip
+      ? Math.min(latest.commute_round_trip * days.length, latest.commute_cap ?? Number.MAX_SAFE_INTEGER)
+      : 0
+    const total = employTotal + contractTotal + transport + commuteFixed
     if (total === 0) continue
     results.push({
       user_id: userId, name: name.get(userId) ?? '—',
-      employTotal, contractTotal, contractTax, allowance, transport,
+      employTotal, contractTotal, contractTax, allowance, transport, commuteFixed,
+      commuteRoundTrip: latest.commute_round_trip ?? 0,
       daysCount: days.length, total, note: latest.note ?? '', contractorName: latest.contractor_name ?? '', days,
     })
   }
   results.sort((a, b) => b.total - a.total)
-  const grand = results.reduce((g, r) => ({ employ: g.employ + r.employTotal, contract: g.contract + r.contractTotal, tax: g.tax + r.contractTax, transport: g.transport + r.transport, total: g.total + r.total }), { employ: 0, contract: 0, tax: 0, transport: 0, total: 0 })
+  const grand = results.reduce((g, r) => ({ employ: g.employ + r.employTotal, contract: g.contract + r.contractTotal, tax: g.tax + r.contractTax, transport: g.transport + r.transport, commute: g.commute + r.commuteFixed, total: g.total + r.total }), { employ: 0, contract: 0, tax: 0, transport: 0, commute: 0, total: 0 })
 
   return NextResponse.json({ ok: true, month: `${year}年${mon}月`, results, grand })
 }

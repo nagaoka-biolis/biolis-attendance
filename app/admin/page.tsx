@@ -68,10 +68,10 @@ export default function AdminPage() {
   const fmtD = (d: string) => new Date(d).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const summaryRows = (): (string | number)[][] => {
-    const rows: (string | number)[][] = [['先生', '雇用(対象外)', '委託(税込)', '内消費税', '交通費(実費)', '総合計']]
+    const rows: (string | number)[][] = [['先生', '雇用(対象外)', '委託(税込)', '内消費税', '通勤手当(定期)', '交通費(実費)', '総合計']]
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const r of payroll.results) rows.push([r.name, r.employTotal, r.contractTotal, r.contractTax, r.transport ?? 0, r.total])
-    rows.push(['合計', payroll.grand.employ, payroll.grand.contract, payroll.grand.tax, payroll.grand.transport ?? 0, payroll.grand.total])
+    for (const r of payroll.results) rows.push([r.name, r.employTotal, r.contractTotal, r.contractTax, r.commuteFixed ?? 0, r.transport ?? 0, r.total])
+    rows.push(['合計', payroll.grand.employ, payroll.grand.contract, payroll.grand.tax, payroll.grand.commute ?? 0, payroll.grand.transport ?? 0, payroll.grand.total])
     return rows
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -83,6 +83,7 @@ export default function AdminPage() {
     rows.push(['雇用 小計', '', '', '', r.employTotal, '', ''])
     rows.push(['委託 小計(税込)', '', '', '', '', r.contractTotal, ''])
     rows.push(['内消費税(委託)', '', '', '', '', r.contractTax, ''])
+    if (r.commuteFixed > 0) rows.push(['通勤手当(定期)', '', '', '', '', r.commuteFixed, ''])
     if (r.transport > 0) rows.push(['交通費(実費)', '', '', '', '', r.transport, ''])
     rows.push(['総合計', '', '', '', '', '', r.total])
     if (r.note) rows.push([`別途・注意: ${r.note}`])
@@ -106,8 +107,8 @@ export default function AdminPage() {
     let html = ''
     if (payrollTarget === 'summary') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const body = payroll.results.map((r: any) => `<tr><td ${tdl}>${r.name}</td><td ${td}>${r.employTotal.toLocaleString()}</td><td ${td}>${r.contractTotal.toLocaleString()}</td><td ${td}>${r.contractTax.toLocaleString()}</td><td ${td}>${(r.transport ?? 0).toLocaleString()}</td><td ${td}><b>${r.total.toLocaleString()}</b></td></tr>`).join('')
-      html = `<h2>BiOLiS 報酬サマリー（${payroll.month}）</h2>${note}<table style="border-collapse:collapse;width:100%"><tr><th ${th.replace('right', 'left')}>先生</th><th ${th}>雇用(対象外)</th><th ${th}>委託(税込)</th><th ${th}>内消費税</th><th ${th}>交通費(実費)</th><th ${th}>総合計</th></tr>${body}<tr><td ${tdl}><b>合計</b></td><td ${td}><b>${payroll.grand.employ.toLocaleString()}</b></td><td ${td}><b>${payroll.grand.contract.toLocaleString()}</b></td><td ${td}>${payroll.grand.tax.toLocaleString()}</td><td ${td}>${(payroll.grand.transport ?? 0).toLocaleString()}</td><td ${td}><b>${payroll.grand.total.toLocaleString()}</b></td></tr></table>`
+      const body = payroll.results.map((r: any) => `<tr><td ${tdl}>${r.name}</td><td ${td}>${r.employTotal.toLocaleString()}</td><td ${td}>${r.contractTotal.toLocaleString()}</td><td ${td}>${r.contractTax.toLocaleString()}</td><td ${td}>${(r.commuteFixed ?? 0).toLocaleString()}</td><td ${td}>${(r.transport ?? 0).toLocaleString()}</td><td ${td}><b>${r.total.toLocaleString()}</b></td></tr>`).join('')
+      html = `<h2>BiOLiS 報酬サマリー（${payroll.month}）</h2>${note}<table style="border-collapse:collapse;width:100%"><tr><th ${th.replace('right', 'left')}>先生</th><th ${th}>雇用(対象外)</th><th ${th}>委託(税込)</th><th ${th}>内消費税</th><th ${th}>通勤手当(定期)</th><th ${th}>交通費(実費)</th><th ${th}>総合計</th></tr>${body}<tr><td ${tdl}><b>合計</b></td><td ${td}><b>${payroll.grand.employ.toLocaleString()}</b></td><td ${td}><b>${payroll.grand.contract.toLocaleString()}</b></td><td ${td}>${payroll.grand.tax.toLocaleString()}</td><td ${td}>${(payroll.grand.commute ?? 0).toLocaleString()}</td><td ${td}>${(payroll.grand.transport ?? 0).toLocaleString()}</td><td ${td}><b>${payroll.grand.total.toLocaleString()}</b></td></tr></table>`
     } else {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const r = payroll.results.find((x: any) => x.user_id === payrollTarget)
@@ -115,8 +116,9 @@ export default function AdminPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = r.days.map((d: any) => `<tr><td ${tdl}>${fmtD(d.date)}</td><td ${tdl}>${d.time || ''}</td><td ${tdl}>${d.end || ''}</td><td ${tdl}>${d.breakMin ? d.breakMin + '分' : ''}</td><td ${td}>${d.employ ? d.employ.toLocaleString() : ''}</td><td ${td}>${d.contract ? d.contract.toLocaleString() : ''}</td></tr>`).join('')
       const allowRow = r.allowance > 0 ? `<tr><td ${tdl} colspan="4">管理医師手当(委託)</td><td ${td}></td><td ${td}>${r.allowance.toLocaleString()}</td></tr>` : ''
+      const commuteRow = r.commuteFixed > 0 ? `<tr><td ${tdl} colspan="5">通勤手当(定期)</td><td ${td}>${r.commuteFixed.toLocaleString()}</td></tr>` : ''
       const transRow = r.transport > 0 ? `<tr><td ${tdl} colspan="5">交通費(実費)</td><td ${td}>${r.transport.toLocaleString()}</td></tr>` : ''
-      html = `<h2>BiOLiS 報酬明細 — ${r.name}（${payroll.month}）</h2>${note}<p style="font-size:12px;color:#555">稼働${r.daysCount}日${r.contractorName ? ' ／ 委託先：' + r.contractorName : ''}</p><table style="border-collapse:collapse;width:100%"><tr><th ${th.replace('right', 'left')}>日付</th><th ${th.replace('right', 'left')}>出勤</th><th ${th.replace('right', 'left')}>退勤</th><th ${th.replace('right', 'left')}>休憩</th><th ${th}>雇用(対象外)</th><th ${th}>委託(税込)</th></tr>${body}${allowRow}<tr><td ${tdl} colspan="4"><b>小計</b></td><td ${td}><b>${r.employTotal.toLocaleString()}</b></td><td ${td}><b>${r.contractTotal.toLocaleString()}</b></td></tr><tr><td ${tdl} colspan="5">内消費税(委託)</td><td ${td}>${r.contractTax.toLocaleString()}</td></tr>${transRow}<tr><td ${tdl} colspan="5"><b>総合計</b></td><td ${td}><b>${r.total.toLocaleString()}</b></td></tr></table>${r.note ? `<p style="color:#c00;font-size:11px">別途・注意：${r.note}</p>` : ''}`
+      html = `<h2>BiOLiS 報酬明細 — ${r.name}（${payroll.month}）</h2>${note}<p style="font-size:12px;color:#555">稼働${r.daysCount}日${r.contractorName ? ' ／ 委託先：' + r.contractorName : ''}</p><table style="border-collapse:collapse;width:100%"><tr><th ${th.replace('right', 'left')}>日付</th><th ${th.replace('right', 'left')}>出勤</th><th ${th.replace('right', 'left')}>退勤</th><th ${th.replace('right', 'left')}>休憩</th><th ${th}>雇用(対象外)</th><th ${th}>委託(税込)</th></tr>${body}${allowRow}<tr><td ${tdl} colspan="4"><b>小計</b></td><td ${td}><b>${r.employTotal.toLocaleString()}</b></td><td ${td}><b>${r.contractTotal.toLocaleString()}</b></td></tr><tr><td ${tdl} colspan="5">内消費税(委託)</td><td ${td}>${r.contractTax.toLocaleString()}</td></tr>${commuteRow}${transRow}<tr><td ${tdl} colspan="5"><b>総合計</b></td><td ${td}><b>${r.total.toLocaleString()}</b></td></tr></table>${r.note ? `<p style="color:#c00;font-size:11px">別途・注意：${r.note}</p>` : ''}`
     }
     const w = window.open('', '_blank')
     if (!w) return
@@ -839,7 +841,7 @@ export default function AdminPage() {
                       <th className="text-right pb-2 font-normal">雇用(対象外)</th>
                       <th className="text-right pb-2 font-normal">委託(税込)</th>
                       <th className="text-right pb-2 font-normal">内消費税</th>
-                      <th className="text-right pb-2 font-normal">交通費</th>
+                      <th className="text-right pb-2 font-normal">通勤・交通費</th>
                       <th className="text-right pb-2 font-normal">総合計</th>
                     </tr>
                   </thead>
@@ -854,7 +856,7 @@ export default function AdminPage() {
                           <td className="py-2.5 text-right" style={{ color: 'var(--navy)' }}>{r.employTotal.toLocaleString()}</td>
                           <td className="py-2.5 text-right" style={{ color: 'var(--navy)' }}>{r.contractTotal.toLocaleString()}</td>
                           <td className="py-2.5 text-right text-xs" style={{ color: 'var(--gray)' }}>{r.contractTax.toLocaleString()}</td>
-                          <td className="py-2.5 text-right text-xs" style={{ color: (r.transport ?? 0) > 0 ? 'var(--navy)' : 'var(--gray)' }}>{(r.transport ?? 0).toLocaleString()}</td>
+                          <td className="py-2.5 text-right text-xs" style={{ color: ((r.transport ?? 0) + (r.commuteFixed ?? 0)) > 0 ? 'var(--navy)' : 'var(--gray)' }}>{((r.transport ?? 0) + (r.commuteFixed ?? 0)).toLocaleString()}</td>
                           <td className="py-2.5 text-right font-medium" style={{ color: 'var(--gold)' }}>{r.total.toLocaleString()}</td>
                         </tr>
                         {payrollOpen.has(r.user_id) && (
@@ -881,6 +883,12 @@ export default function AdminPage() {
                                   <span style={{ color: 'var(--navy)' }}>委託 {r.allowance.toLocaleString()}（管理医師手当）</span>
                                 </div>
                               )}
+                              {r.commuteFixed > 0 && (
+                                <div className="flex items-center gap-3 text-xs">
+                                  <span className="w-16" style={{ color: 'var(--gray)' }}>通勤手当</span>
+                                  <span style={{ color: 'var(--navy)' }}>定期 {r.commuteFixed.toLocaleString()}（往復{(r.commuteRoundTrip ?? 0).toLocaleString()}円 × 出勤{r.daysCount}日{r.commuteFixed >= 40000 ? '・上限' : ''}）</span>
+                                </div>
+                              )}
                               {r.transport > 0 && (
                                 <div className="flex items-center gap-3 text-xs">
                                   <span className="w-16" style={{ color: 'var(--gray)' }}>交通費</span>
@@ -898,7 +906,7 @@ export default function AdminPage() {
                       <td className="py-2.5 text-right font-medium" style={{ color: 'var(--navy)' }}>{payroll.grand.employ.toLocaleString()}</td>
                       <td className="py-2.5 text-right font-medium" style={{ color: 'var(--navy)' }}>{payroll.grand.contract.toLocaleString()}</td>
                       <td className="py-2.5 text-right text-xs" style={{ color: 'var(--gray)' }}>{payroll.grand.tax.toLocaleString()}</td>
-                      <td className="py-2.5 text-right font-medium" style={{ color: 'var(--navy)' }}>{(payroll.grand.transport ?? 0).toLocaleString()}</td>
+                      <td className="py-2.5 text-right font-medium" style={{ color: 'var(--navy)' }}>{((payroll.grand.transport ?? 0) + (payroll.grand.commute ?? 0)).toLocaleString()}</td>
                       <td className="py-2.5 text-right font-bold" style={{ color: 'var(--gold)' }}>{payroll.grand.total.toLocaleString()}</td>
                     </tr>
                   </tbody>
