@@ -34,7 +34,7 @@ async function authHeaders(): Promise<HeadersInit> {
 }
 
 export default function StaffPayroll() {
-  const [view, setView] = useState<'calc' | 'master'>('calc')
+  const [view, setView] = useState<'calc' | 'master' | 'freee'>('calc')
   const [month, setMonth] = useState(thisMonth())
   const [rows, setRows] = useState<Row[]>([])
   const [grand, setGrand] = useState<Grand | null>(null)
@@ -76,7 +76,7 @@ export default function StaffPayroll() {
       <div className="flex flex-col sm:flex-row gap-3 sm:items-center mb-3">
         <div className="text-xs tracking-[0.2em] flex-1" style={{ color: 'var(--gray)' }}>BASE PAY — 基本給（時給スタッフ）</div>
         <div className="flex gap-1 p-1 rounded-lg" style={{ background: 'var(--gray-light)' }}>
-          {([['calc', '計算'], ['master', '時給マスタ']] as const).map(([k, l]) => (
+          {([['calc', '計算'], ['master', '時給マスタ'], ['freee', 'freee連携']] as const).map(([k, l]) => (
             <button key={k} onClick={() => setView(k)}
               className="px-3 py-1.5 rounded-md text-sm transition"
               style={{ background: view === k ? '#fff' : 'transparent', color: view === k ? 'var(--navy)' : 'var(--gray)', fontWeight: view === k ? 600 : 400 }}>{l}</button>
@@ -180,6 +180,116 @@ export default function StaffPayroll() {
       )}
 
       {view === 'master' && <WageMaster />}
+      {view === 'freee' && <FreeeExport />}
+    </div>
+  )
+}
+
+// ---- freee連携（従業員番号の編集＋勤怠サマリーCSV出力） ----
+const FREEE_HEADERS = ['従業員番号', '氏名', '所定労働時間（分）', '法定内残業時間（分）', '時間外労働時間（分）', '所定休日労働時間（分）', '深夜労働時間（分）', '法定休日労働時間（分）', '総労働時間（分）', '総労働日数', '所定労働出勤日数', '所定休日出勤日数', '法定休日出勤日数', '遅刻時間（分）', '早退時間（分）', '欠勤日数', '遅刻日数', '早退日数', '有休取得日数', '集計開始日', '集計終了日', 'みなし外の法定内残業時間（分）', 'みなし外の時間外労働時間（分）', '不足時間（分）']
+
+function FreeeExport() {
+  const [month, setMonth] = useState(thisMonth())
+  const [profiles, setProfiles] = useState<Staff[]>([])
+  const [codes, setCodes] = useState<Record<string, string>>({})
+  const [error, setError] = useState('')
+  const [msg, setMsg] = useState('')
+
+  const load = useCallback(async () => {
+    setError('')
+    try {
+      const res = await fetch('/api/freee-map', { headers: await authHeaders() })
+      const d = await res.json()
+      if (!res.ok) { setError(d?.error ?? '取得に失敗しました'); return }
+      setProfiles(d.profiles ?? [])
+      const m: Record<string, string> = {}
+      for (const r of (d.map ?? []) as { user_id: string; employee_code: string | null }[]) m[r.user_id] = r.employee_code ?? ''
+      setCodes(m)
+    } catch { setError('通信に失敗しました') }
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const saveCode = async (user_id: string, employee_code: string) => {
+    await fetch('/api/freee-map', { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ user_id, employee_code }) })
+  }
+
+  const exportFreeeCSV = async () => {
+    setError(''); setMsg('組み立て中…')
+    try {
+      const h = await authHeaders()
+      const [staffRes, docRes] = await Promise.all([
+        fetch('/api/staff-payroll', { method: 'POST', headers: h, body: JSON.stringify({ month }) }).then(r => r.json()),
+        fetch('/api/payroll', { method: 'POST', headers: h, body: JSON.stringify({ month: month + '' }) }).then(r => r.json()).catch(() => ({ results: [] })),
+      ])
+      const [y, mo] = month.split('-')
+      const last = new Date(Number(y), Number(mo), 0).getDate()
+      const start = `${y}/${mo}/01`
+      const end = `${y}/${mo}/${String(last).padStart(2, '0')}`
+      const rows: (string | number)[][] = []
+      const blank = (code: string, name: string) => [code, name, 0, 0, 0, '', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, start, end, '', '', '']
+
+      // 時給/月給スタッフ
+      for (const r of (staffRes?.results ?? []) as Row[]) {
+        const code = codes[r.user_id]; if (!code) continue
+        const row = blank(code, r.name)
+        if (r.payType === 'hourly') {
+          row[2] = Math.max(0, r.workedMin - r.overtimeMin) // 所定労働時間
+          row[4] = r.overtimeMin                             // 時間外労働時間
+          row[6] = r.nightMin                                // 深夜労働時間
+          row[8] = r.workedMin                               // 総労働時間
+        }
+        row[9] = r.workDays; row[10] = r.workDays            // 総労働日数 / 所定労働出勤日数
+        rows.push(row)
+      }
+      // 医師（日給）：総労働日数＝雇用日給が出る日数
+      for (const r of (docRes?.results ?? []) as { user_id: string; name: string; days?: { employ: number }[] }[]) {
+        const code = codes[r.user_id]; if (!code) continue
+        const employDays = (r.days ?? []).filter(d => d.employ > 0).length
+        if (employDays === 0) continue
+        const row = blank(code, r.name)
+        row[9] = employDays; row[10] = employDays
+        rows.push(row)
+      }
+
+      if (rows.length === 0) { setMsg(''); setError('対象データがありません（従業員番号が未設定か、この月の勤務がありません）'); return }
+      const csv = [FREEE_HEADERS, ...rows].map(rw => rw.map(c => {
+        const s = String(c ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+      }).join(',')).join('\n')
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = `freee勤怠サマリー_${month}.csv`; a.click(); URL.revokeObjectURL(url)
+      setMsg(`${rows.length}名分を出力しました`)
+    } catch { setError('組み立てに失敗しました'); setMsg('') }
+  }
+
+  return (
+    <div>
+      <div className="text-xs rounded-lg px-3 py-2 mb-3" style={{ background: '#EEF4FF', color: '#28527A' }}>
+        freeeの「勤怠 → 勤怠サマリーの一括更新」に取り込む形式で出します。<b>紐付けは従業員番号</b>。freee側とここで同じ番号にしてください（今は仮番号）。委託分は給与でなく請求書なので含みません。
+      </div>
+      {error && <div className="text-sm rounded-lg px-3 py-2 mb-3" style={{ background: '#FEECEC', color: '#B4232A' }}>{error}</div>}
+
+      <div className="flex items-center gap-3 mb-4">
+        <input type="month" value={month} onChange={e => setMonth(e.target.value)}
+          className="px-3 py-2 rounded-lg text-sm border focus:outline-none" style={{ borderColor: 'var(--gray-light)', background: 'var(--off-white)', color: 'var(--navy)' }} />
+        <button onClick={exportFreeeCSV} className="btn-gold text-sm px-4 py-2 rounded-lg">勤怠サマリーCSV（freee形式）</button>
+        {msg && <span className="text-xs" style={{ color: 'var(--gray)' }}>{msg}</span>}
+      </div>
+
+      <div className="text-xs tracking-widest mb-2" style={{ color: 'var(--gray)' }}>従業員番号（freeeと一致させる）</div>
+      <div className="space-y-1">
+        {profiles.map(p => (
+          <div key={p.id} className="flex items-center justify-between text-sm py-1" style={{ borderTop: '1px solid var(--gray-light)' }}>
+            <span style={{ color: 'var(--navy)' }}>{p.name}<span className="ml-2 text-xs" style={{ color: 'var(--gray)' }}>{p.role === 'admin' ? '管理者' : 'スタッフ'}</span></span>
+            <input
+              value={codes[p.id] ?? ''}
+              onChange={e => setCodes({ ...codes, [p.id]: e.target.value })}
+              onBlur={e => saveCode(p.id, e.target.value)}
+              className="w-28 px-2 py-1 rounded border text-sm text-right" style={{ borderColor: 'var(--gray-light)' }} placeholder="番号"
+            />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
