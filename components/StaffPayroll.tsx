@@ -10,7 +10,7 @@ type Day = { date: string; clockIn: string; clockOut: string; breakMin: number; 
 type Alert = { date: string; msg: string }
 type Row = {
   user_id: string; name: string; payType: string
-  base: number; overtimePay: number; nightPay: number; fixedOvertime: number; commute: number
+  base: number; overtimePay: number; nightPay: number; fixedOvertime: number; otherAllowance: number; otherAllowanceLabel: string; commute: number
   workDays: number; workedMin: number; overtimeMin: number; nightMin: number
   commuteRoundTrip: number | null; gross: number
   note: string; alerts: Alert[]; days: Day[]
@@ -19,6 +19,7 @@ type Grand = { base: number; overtimePay: number; nightPay: number; commute: num
 type Wage = {
   user_id: string; effective_from: string; pay_type: string
   hourly_rate: number | null; monthly_salary: number | null; fixed_overtime: number
+  other_allowance: number; other_allowance_label: string | null
   commute_round_trip: number | null; freee_employee_code: string | null; note: string | null
 }
 type Staff = { id: string; name: string; role: string }
@@ -127,7 +128,7 @@ export default function StaffPayroll() {
                   </div>
                   <div className="text-xs mt-1" style={{ color: 'var(--gray)' }}>
                     {r.payType === 'monthly'
-                      ? `月給 ${yen(r.base)}${r.fixedOvertime ? ` ＋固定残業 ${yen(r.fixedOvertime)}` : ''}${r.commute ? ` ＋通勤 ${yen(r.commute)}` : ''} ／ 出勤${r.workDays}日`
+                      ? `基本給 ${yen(r.base)}${r.fixedOvertime ? ` ＋固定残業 ${yen(r.fixedOvertime)}` : ''}${r.otherAllowance ? ` ＋${r.otherAllowanceLabel || 'その他手当'} ${yen(r.otherAllowance)}` : ''}${r.commute ? ` ＋通勤 ${yen(r.commute)}` : ''} ／ 出勤${r.workDays}日`
                       : `出勤${r.workDays}日 ／ 実働${hm(r.workedMin)} ／ 残業${hm(r.overtimeMin)} ／ 深夜${hm(r.nightMin)}`}
                   </div>
                 </button>
@@ -325,7 +326,7 @@ function WageMaster() {
     const res = await fetch('/api/staff-wages', { method: 'DELETE', headers: await authHeaders(), body: JSON.stringify({ user_id: w.user_id, effective_from: w.effective_from }) })
     if (res.ok) await load()
   }
-  const newRow = (user_id: string): Wage => ({ user_id, effective_from: thisMonth() + '-01', pay_type: 'hourly', hourly_rate: null, monthly_salary: null, fixed_overtime: 0, commute_round_trip: null, freee_employee_code: null, note: null })
+  const newRow = (user_id: string): Wage => ({ user_id, effective_from: thisMonth() + '-01', pay_type: 'hourly', hourly_rate: null, monthly_salary: null, fixed_overtime: 0, other_allowance: 0, other_allowance_label: null, commute_round_trip: null, freee_employee_code: null, note: null })
 
   const wagesByUser = new Map<string, Wage[]>()
   for (const w of wages) { const a = wagesByUser.get(w.user_id) ?? []; a.push(w); wagesByUser.set(w.user_id, a) }
@@ -347,7 +348,7 @@ function WageMaster() {
               : (wagesByUser.get(s.id) ?? []).map(w => (
                 <div key={w.effective_from} className="flex items-center justify-between text-xs py-1" style={{ borderTop: '1px solid var(--gray-light)' }}>
                   <span style={{ color: 'var(--navy)' }}>
-                    {w.effective_from}〜 ／ {w.pay_type === 'monthly' ? `月給 ${(w.monthly_salary ?? 0).toLocaleString()}${w.fixed_overtime ? ` ＋固定残業 ${w.fixed_overtime.toLocaleString()}` : ''}` : `時給 ${(w.hourly_rate ?? 0).toLocaleString()}円`}
+                    {w.effective_from}〜 ／ {w.pay_type === 'monthly' ? `基本給 ${(w.monthly_salary ?? 0).toLocaleString()}${w.fixed_overtime ? ` ＋固定残業 ${w.fixed_overtime.toLocaleString()}` : ''}${w.other_allowance ? ` ＋${w.other_allowance_label || 'その他手当'} ${w.other_allowance.toLocaleString()}` : ''}` : `時給 ${(w.hourly_rate ?? 0).toLocaleString()}円`}
                     {w.commute_round_trip != null ? ` ／ 通勤往復 ${w.commute_round_trip}円` : ' ／ 通勤未取得'}
                     {w.note ? ` ／ ${w.note}` : ''}
                   </span>
@@ -380,6 +381,10 @@ function WageMaster() {
                       <input type="number" value={editing.monthly_salary ?? ''} onChange={e => setEditing({ ...editing, monthly_salary: e.target.value === '' ? null : Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg border" style={{ borderColor: 'var(--gray-light)' }} /></label>
                     <label className="block"><span className="text-xs" style={{ color: 'var(--gray)' }}>固定残業手当（円・みなし）</span>
                       <input type="number" value={editing.fixed_overtime} onChange={e => setEditing({ ...editing, fixed_overtime: Number(e.target.value) || 0 })} className="w-full px-3 py-2 rounded-lg border" style={{ borderColor: 'var(--gray-light)' }} /></label>
+                    <label className="block"><span className="text-xs" style={{ color: 'var(--gray)' }}>その他手当（円・例：SNS手当）</span>
+                      <input type="number" value={editing.other_allowance} onChange={e => setEditing({ ...editing, other_allowance: Number(e.target.value) || 0 })} className="w-full px-3 py-2 rounded-lg border" style={{ borderColor: 'var(--gray-light)' }} /></label>
+                    <label className="block"><span className="text-xs" style={{ color: 'var(--gray)' }}>その他手当の名称</span>
+                      <input type="text" value={editing.other_allowance_label ?? ''} onChange={e => setEditing({ ...editing, other_allowance_label: e.target.value })} placeholder="SNS手当" className="w-full px-3 py-2 rounded-lg border" style={{ borderColor: 'var(--gray-light)' }} /></label>
                   </>}
               <label className="block"><span className="text-xs" style={{ color: 'var(--gray)' }}>通勤手当・往復額/日（円・空欄=未取得）</span>
                 <input type="number" value={editing.commute_round_trip ?? ''} onChange={e => setEditing({ ...editing, commute_round_trip: e.target.value === '' ? null : Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg border" style={{ borderColor: 'var(--gray-light)' }} /></label>

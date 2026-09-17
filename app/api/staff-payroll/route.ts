@@ -74,10 +74,12 @@ export async function POST(req: NextRequest) {
       const commute = commuteAmount(latest.commute_round_trip, dates.filter(d => attMap.get(`${userId}|${d}`)?.clockInISO).length)
       const base = latest.monthly_salary ?? 0
       const fixedOt = latest.fixed_overtime ?? 0
-      const gross = base + fixedOt + commute
+      const otherAllow = latest.other_allowance ?? 0
+      const gross = base + fixedOt + otherAllow + commute
       results.push({
         user_id: userId, name: nameOf.get(userId) ?? '—', payType,
-        base, overtimePay: 0, nightPay: 0, fixedOvertime: fixedOt, commute,
+        base, overtimePay: 0, nightPay: 0, fixedOvertime: fixedOt,
+        otherAllowance: otherAllow, otherAllowanceLabel: latest.other_allowance_label ?? 'その他手当', commute,
         workDays: dates.length, workedMin: 0, overtimeMin: 0, nightMin: 0,
         commuteRoundTrip: latest.commute_round_trip, gross,
         note: latest.note ?? '', alerts: [] as { date: string; msg: string }[], days: [] as unknown[],
@@ -132,7 +134,7 @@ export async function POST(req: NextRequest) {
 
     results.push({
       user_id: userId, name: nameOf.get(userId) ?? '—', payType,
-      base, overtimePay, nightPay, fixedOvertime: 0, commute,
+      base, overtimePay, nightPay, fixedOvertime: 0, otherAllowance: 0, otherAllowanceLabel: '', commute,
       workDays, workedMin, overtimeMin, nightMin,
       commuteRoundTrip, gross,
       note: latest.note ?? '', alerts, days,

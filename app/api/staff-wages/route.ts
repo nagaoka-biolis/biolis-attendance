@@ -31,6 +31,8 @@ export async function POST(req: NextRequest) {
     hourly_rate: pay_type === 'hourly' ? num(b?.hourly_rate) : null,
     monthly_salary: pay_type === 'monthly' ? num(b?.monthly_salary) : null,
     fixed_overtime: Number(b?.fixed_overtime) || 0,
+    other_allowance: Number(b?.other_allowance) || 0,
+    other_allowance_label: b?.other_allowance_label ? String(b.other_allowance_label) : null,
     commute_round_trip: num(b?.commute_round_trip),
     freee_employee_code: b?.freee_employee_code ? String(b.freee_employee_code) : null,
     note: b?.note ? String(b.note) : null,

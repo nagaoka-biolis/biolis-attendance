@@ -86,6 +86,8 @@ export type WageRow = {
   hourly_rate: number | null
   monthly_salary: number | null
   fixed_overtime: number
+  other_allowance?: number | null
+  other_allowance_label?: string | null
   commute_round_trip: number | null
   note: string | null
 }
