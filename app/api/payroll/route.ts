@@ -5,7 +5,7 @@ export const runtime = 'nodejs'
 
 type Shift = { user_id: string; date: string; start_time: string | null; end_time: string | null; kind: string }
 type Att = { user_id: string; type: string; timestamp: string }
-type Rate = { user_id: string; employ_daily: number; contract_daily: number; monthly_allowance: number; both_contracts: boolean; contractor_name: string | null; note: string | null }
+type Rate = { user_id: string; effective_from: string | null; employ_daily: number; contract_daily: number; monthly_allowance: number; both_contracts: boolean; contractor_name: string | null; note: string | null }
 type Adj = { user_id: string; date: string; kind: string; contract: string; amount: number; reason: string | null }
 
 export async function POST(req: NextRequest) {
@@ -57,18 +57,29 @@ export async function POST(req: NextRequest) {
   const adjByUser = new Map<string, Adj[]>()
   for (const a of (adjs ?? []) as Adj[]) { const x = adjByUser.get(a.user_id) ?? []; x.push(a); adjByUser.set(a.user_id, x) }
 
+  // 単価は発効日つき（1人に複数行あり得る）。その日に有効な行を使う。
+  const ratesByUser = new Map<string, Rate[]>()
+  for (const r of (rates ?? []) as Rate[]) { const a = ratesByUser.get(r.user_id) ?? []; a.push(r); ratesByUser.set(r.user_id, a) }
+  const byEffDesc = (a: Rate, b: Rate) => ((a.effective_from ?? '') < (b.effective_from ?? '') ? 1 : -1)
+  const pickRate = (rows: Rate[], d: string): Rate => {
+    const ap = rows.filter(x => (x.effective_from ?? '0000-01-01') <= d).sort(byEffDesc)
+    return ap[0] ?? rows.slice().sort(byEffDesc)[rows.length - 1] // 全部未来なら最古を暫定
+  }
+
   const results = []
-  for (const r of (rates ?? []) as Rate[]) {
-    const sList = (shiftsByUser.get(r.user_id) ?? []).filter(s => s.kind === 'work' || s.kind === 'paid')
-    const aList = adjByUser.get(r.user_id) ?? []
-    const transport = transportByUser.get(r.user_id) ?? 0  // 承認済み交通費(実費)
+  for (const [userId, rateRows] of ratesByUser) {
+    const latest = rateRows.slice().sort(byEffDesc)[0]  // 月次手当・受託者名・備考は最新行を使う
+    const sList = (shiftsByUser.get(userId) ?? []).filter(s => s.kind === 'work' || s.kind === 'paid')
+    const aList = adjByUser.get(userId) ?? []
+    const transport = transportByUser.get(userId) ?? 0  // 承認済み交通費(実費)
     const dates = new Set<string>([...sList.map(s => s.date), ...aList.map(a => a.date)])
-    if (dates.size === 0 && r.monthly_allowance === 0 && transport === 0) continue
+    if (dates.size === 0 && latest.monthly_allowance === 0 && transport === 0) continue
 
     const shiftByDate = new Map(sList.map(s => [s.date, s]))
     const days = []
     let employTotal = 0, contractTotal = 0
     for (const d of Array.from(dates).sort()) {
+      const r = pickRate(rateRows, d)  // その日に有効な単価
       const sh = shiftByDate.get(d)
       const daytime = sh ? (!sh.start_time || sh.start_time < '19:00') : false
       let employ = (sh && daytime) ? r.employ_daily : 0
@@ -79,7 +90,7 @@ export async function POST(req: NextRequest) {
         else { if (a.contract === 'employ') employ += a.amount; else contract += a.amount } // add
       }
       if (employ || contract) {
-        const at = attMap.get(`${r.user_id}|${d}`)
+        const at = attMap.get(`${userId}|${d}`)
         days.push({
           date: d, employ, contract,
           time: at?.clockIn || (sh ? (sh.start_time ?? '') : ''),   // 出勤（打刻優先、なければシフト開始）
@@ -91,15 +102,15 @@ export async function POST(req: NextRequest) {
       employTotal += employ; contractTotal += contract
     }
     const worked = days.length > 0
-    const allowance = worked ? (r.monthly_allowance || 0) : 0
+    const allowance = worked ? (latest.monthly_allowance || 0) : 0
     contractTotal += allowance // 手当は委託(税込)に乗せる
     const contractTax = Math.round(contractTotal * 10 / 110)
     const total = employTotal + contractTotal + transport
     if (total === 0) continue
     results.push({
-      user_id: r.user_id, name: name.get(r.user_id) ?? '—',
+      user_id: userId, name: name.get(userId) ?? '—',
       employTotal, contractTotal, contractTax, allowance, transport,
-      daysCount: days.length, total, note: r.note ?? '', contractorName: r.contractor_name ?? '', days,
+      daysCount: days.length, total, note: latest.note ?? '', contractorName: latest.contractor_name ?? '', days,
     })
   }
   results.sort((a, b) => b.total - a.total)
