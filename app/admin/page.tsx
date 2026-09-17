@@ -161,9 +161,11 @@ export default function AdminPage() {
       ${r.note ? `<div class="betsu">別途（データ待ち）：${r.note}</div>` : ''}
       <div class="pay">お振込先：${ph}</div></section>`
   }
-  const printInvoice = () => {
+  const printInvoice = (targetId?: string) => {
     if (!payroll?.results?.length) return
-    const targets = payrollTarget === 'summary' ? payroll.results : payroll.results.filter((x: any) => x.user_id === payrollTarget)
+    const targets = targetId
+      ? payroll.results.filter((x: any) => x.user_id === targetId)
+      : (payrollTarget === 'summary' ? payroll.results : payroll.results.filter((x: any) => x.user_id === payrollTarget))
     if (!targets.length) return
     const body = targets.map(invoiceHtml).join('<div class="pb"></div>')
     const css = `body{font-family:"Hiragino Sans",sans-serif;color:#1A1A2E;margin:0}
@@ -882,7 +884,7 @@ export default function AdminPage() {
               </select>
               <button onClick={exportPayrollCSV} className="btn-outline text-sm px-4 py-2 rounded-lg">CSVダウンロード</button>
               <button onClick={printPayrollPDF} className="btn-gold text-sm px-4 py-2 rounded-lg">PDF（印刷）</button>
-              <button onClick={printInvoice} className="btn-outline text-sm px-4 py-2 rounded-lg">請求書（PDF）</button>
+              <button onClick={() => printInvoice()} className="btn-outline text-sm px-4 py-2 rounded-lg">請求書（全員・PDF）</button>
             </div>
           )}
           {payrollLoading ? (
@@ -912,6 +914,11 @@ export default function AdminPage() {
                         <tr onClick={() => togglePayroll(r.user_id)} className="border-t border-gray-50 cursor-pointer hover:bg-amber-50/40">
                           <td className="py-2.5 font-medium" style={{ color: 'var(--navy)' }}>
                             <span className="inline-block w-3" style={{ color: 'var(--gold)' }}>{payrollOpen.has(r.user_id) ? '▾' : '▸'}</span>{r.name}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); printInvoice(r.user_id) }}
+                              className="ml-2 text-xs px-2 py-0.5 rounded border align-middle"
+                              style={{ borderColor: 'var(--gray-light)', color: 'var(--gold)' }}
+                            >請求書</button>
                           </td>
                           <td className="py-2.5 text-right" style={{ color: 'var(--navy)' }}>{r.employTotal.toLocaleString()}</td>
                           <td className="py-2.5 text-right" style={{ color: 'var(--navy)' }}>{r.contractTotal.toLocaleString()}</td>
