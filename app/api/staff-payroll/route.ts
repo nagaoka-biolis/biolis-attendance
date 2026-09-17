@@ -47,17 +47,17 @@ export async function POST(req: NextRequest) {
   const jstDate = (ts: string) => { const d = jstShift(ts); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}` }
   const jstHM = (ts: string) => { const d = jstShift(ts); return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}` }
 
-  type DayAtt = { clockInISO: string | null; clockOutISO: string | null; clockInHM: string; clockOutHM: string; breakMin: number; hasBreak: boolean }
+  type DayAtt = { clockInISO: string | null; clockOutISO: string | null; clockInHM: string; clockOutHM: string; breakMin: number; hasBreak: boolean; breaks: { start: string; end: string }[] }
   const attMap = new Map<string, DayAtt>()
   const brkTmp = new Map<string, string | null>()
   for (const a of (att ?? []) as Att[]) {
     const key = `${a.user_id}|${jstDate(a.timestamp)}`
     let e = attMap.get(key)
-    if (!e) { e = { clockInISO: null, clockOutISO: null, clockInHM: '', clockOutHM: '', breakMin: 0, hasBreak: false }; attMap.set(key, e) }
+    if (!e) { e = { clockInISO: null, clockOutISO: null, clockInHM: '', clockOutHM: '', breakMin: 0, hasBreak: false, breaks: [] }; attMap.set(key, e) }
     if (a.type === 'clock_in' && !e.clockInISO) { e.clockInISO = a.timestamp; e.clockInHM = jstHM(a.timestamp) }
     if (a.type === 'clock_out') { e.clockOutISO = a.timestamp; e.clockOutHM = jstHM(a.timestamp) }
     if (a.type === 'break_start') { brkTmp.set(key, a.timestamp); e.hasBreak = true }
-    if (a.type === 'break_end') { const bs = brkTmp.get(key); if (bs) { e.breakMin += Math.floor((new Date(a.timestamp).getTime() - new Date(bs).getTime()) / 60000); brkTmp.set(key, null) } }
+    if (a.type === 'break_end') { const bs = brkTmp.get(key); if (bs) { e.breakMin += Math.floor((new Date(a.timestamp).getTime() - new Date(bs).getTime()) / 60000); e.breaks.push({ start: jstHM(bs), end: jstHM(a.timestamp) }); brkTmp.set(key, null) } }
   }
 
   const results = []
@@ -85,8 +85,8 @@ export async function POST(req: NextRequest) {
       continue
     }
 
-    // 時給制
-    let baseFloat = 0, otFloat = 0, nightFloat = 0
+    // 時給制。金額は日別に丸めて合計する（明細の日給の合計＝支給額がぴったり合う）。
+    let baseSum = 0, otSum = 0, nightSum = 0
     let workedMin = 0, overtimeMin = 0, nightMin = 0, workDays = 0
     const alerts: { date: string; msg: string }[] = []
     const days: unknown[] = []
@@ -100,14 +100,14 @@ export async function POST(req: NextRequest) {
       if (e.clockInISO) workDays++ // 通勤手当は出勤打刻がある日で数える（退勤漏れでも出勤はしている）
 
       // 打刻不備の判定
-      if (e.clockInISO && !e.clockOutISO) { alerts.push({ date: d, msg: '退勤打刻なし（実働に未算入）' }); days.push(dayRow(d, e, 0, 0, 0, rate, '退勤打刻なし')); continue }
-      if (!e.clockInISO && e.clockOutISO) { alerts.push({ date: d, msg: '出勤打刻なし（実働に未算入）' }); days.push(dayRow(d, e, 0, 0, 0, rate, '出勤打刻なし')); continue }
+      if (e.clockInISO && !e.clockOutISO) { alerts.push({ date: d, msg: '退勤打刻なし（実働に未算入）' }); days.push(dayRow(d, e, 0, 0, 0, rate, '退勤打刻なし', 0)); continue }
+      if (!e.clockInISO && e.clockOutISO) { alerts.push({ date: d, msg: '出勤打刻なし（実働に未算入）' }); days.push(dayRow(d, e, 0, 0, 0, rate, '出勤打刻なし', 0)); continue }
       if (!e.clockInISO || !e.clockOutISO) continue
 
       const inMin = Math.floor((new Date(e.clockInISO).getTime() + 9 * 3600 * 1000) / 60000)
       const outMin = Math.floor((new Date(e.clockOutISO).getTime() + 9 * 3600 * 1000) / 60000)
       const gross = outMin - inMin
-      if (gross <= 0) { alerts.push({ date: d, msg: '打刻の時刻が不整合' }); days.push(dayRow(d, e, 0, 0, 0, rate, '時刻不整合')); continue }
+      if (gross <= 0) { alerts.push({ date: d, msg: '打刻の時刻が不整合' }); days.push(dayRow(d, e, 0, 0, 0, rate, '時刻不整合', 0)); continue }
       const worked = Math.max(0, gross - Math.max(0, e.breakMin))
       const ot = Math.max(0, worked - standardMin)
       const night = Math.min(nightOverlapMin(e.clockInISO, e.clockOutISO), worked)
@@ -115,16 +115,17 @@ export async function POST(req: NextRequest) {
       if (rate <= 0) alerts.push({ date: d, msg: '時給が未設定' })
       if (!e.hasBreak && worked >= 360) alerts.push({ date: d, msg: '休憩打刻なし（要確認）' })
 
+      const dayBase = Math.round((worked / 60) * rate)
+      const dayOt = Math.round((ot / 60) * rate * 0.25)
+      const dayNight = Math.round((night / 60) * rate * 0.25)
       workedMin += worked; overtimeMin += ot; nightMin += night
-      baseFloat += (worked / 60) * rate
-      otFloat += (ot / 60) * rate * 0.25
-      nightFloat += (night / 60) * rate * 0.25
-      days.push(dayRow(d, e, worked, ot, night, rate, e.hasBreak ? '' : (worked >= 360 ? '休憩なし' : '')))
+      baseSum += dayBase; otSum += dayOt; nightSum += dayNight
+      days.push(dayRow(d, e, worked, ot, night, rate, e.hasBreak ? '' : (worked >= 360 ? '休憩なし' : ''), dayBase + dayOt + dayNight))
     }
 
-    const base = Math.round(baseFloat)
-    const overtimePay = Math.round(otFloat)
-    const nightPay = Math.round(nightFloat)
+    const base = baseSum
+    const overtimePay = otSum
+    const nightPay = nightSum
     const commute = commuteAmount(commuteRoundTrip, workDays)
     const gross = base + overtimePay + nightPay + commute
     if (gross === 0 && workDays === 0 && alerts.length === 0) continue
@@ -151,8 +152,9 @@ function emptyGrand() { return { base: 0, overtimePay: 0, nightPay: 0, commute: 
 
 function dayRow(
   date: string,
-  e: { clockInHM: string; clockOutHM: string; breakMin: number },
-  workedMin: number, overtimeMin: number, nightMin: number, rate: number, note: string,
+  e: { clockInHM: string; clockOutHM: string; breakMin: number; breaks: { start: string; end: string }[] },
+  workedMin: number, overtimeMin: number, nightMin: number, rate: number, note: string, pay: number,
 ) {
-  return { date, clockIn: e.clockInHM, clockOut: e.clockOutHM, breakMin: e.breakMin, workedMin, overtimeMin, nightMin, rate, note }
+  const breakLabel = e.breaks.length ? e.breaks.map(b => `${b.start}-${b.end}`).join(', ') : ''
+  return { date, clockIn: e.clockInHM, clockOut: e.clockOutHM, breakMin: e.breakMin, breakLabel, workedMin, overtimeMin, nightMin, rate, note, pay }
 }

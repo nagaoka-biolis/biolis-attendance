@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 // 時給スタッフの基本給（計算＋時給マスタ）。利用は payroll_viewers 名簿のみ（サーバ側で判定）。
 // ルールの出所: vault/人事給与/給与ルール_全社まとめ.md
 
-type Day = { date: string; clockIn: string; clockOut: string; breakMin: number; workedMin: number; overtimeMin: number; nightMin: number; rate: number; note: string }
+type Day = { date: string; clockIn: string; clockOut: string; breakMin: number; breakLabel: string; workedMin: number; overtimeMin: number; nightMin: number; rate: number; note: string; pay: number }
 type Alert = { date: string; msg: string }
 type Row = {
   user_id: string; name: string; payType: string
@@ -151,7 +151,7 @@ export default function StaffPayroll() {
                         <thead>
                           <tr style={{ color: 'var(--gray)' }}>
                             <th className="text-left font-normal py-1">日付</th><th className="text-left font-normal">出</th><th className="text-left font-normal">退</th>
-                            <th className="text-right font-normal">休憩</th><th className="text-right font-normal">実働</th><th className="text-right font-normal">残業</th><th className="text-right font-normal">深夜</th><th className="text-right font-normal">時給</th><th></th>
+                            <th className="text-left font-normal">休憩</th><th className="text-right font-normal">実働</th><th className="text-right font-normal">残業</th><th className="text-right font-normal">深夜</th><th className="text-right font-normal">時給</th><th className="text-right font-normal">給与</th><th></th>
                           </tr>
                         </thead>
                         <tbody>
@@ -159,11 +159,12 @@ export default function StaffPayroll() {
                             <tr key={i} style={{ borderTop: '1px solid var(--gray-light)' }}>
                               <td className="py-1" style={{ color: 'var(--navy)' }}>{d.date.slice(5)}</td>
                               <td>{d.clockIn || '—'}</td><td>{d.clockOut || '—'}</td>
-                              <td className="text-right">{d.breakMin ? hm(d.breakMin) : '—'}</td>
+                              <td style={{ whiteSpace: 'nowrap' }}>{d.breakLabel || (d.breakMin ? hm(d.breakMin) : '—')}</td>
                               <td className="text-right">{d.workedMin ? hm(d.workedMin) : '—'}</td>
                               <td className="text-right">{d.overtimeMin ? hm(d.overtimeMin) : '—'}</td>
                               <td className="text-right">{d.nightMin ? hm(d.nightMin) : '—'}</td>
                               <td className="text-right">{d.rate ? d.rate.toLocaleString() : '—'}</td>
+                              <td className="text-right" style={{ color: 'var(--navy)' }}>{d.pay ? yen(d.pay) : '—'}</td>
                               <td className="text-right" style={{ color: '#9A5B00' }}>{d.note}</td>
                             </tr>
                           ))}
