@@ -871,6 +871,7 @@ export default function AdminPage() {
                                   {d.time && <span style={{ color: 'var(--gray)' }}>{d.time}{d.end ? `〜${d.end}` : ''}{d.breakMin > 0 ? `（休憩${d.breakMin}分）` : ''}</span>}
                                   {d.employ > 0 && <span style={{ color: 'var(--navy)' }}>雇用 {d.employ.toLocaleString()}</span>}
                                   {d.contract > 0 && <span style={{ color: 'var(--navy)' }}>委託 {d.contract.toLocaleString()}</span>}
+                                  {d.proratedH != null && <span style={{ color: '#B8932F' }}>（シフト{d.shiftStart}-{d.shiftEnd}→実働{d.proratedH}h・按分）</span>}
                                   {d.adj && <span style={{ color: '#B8932F' }}>（個別調整）</span>}
                                 </div>
                               ))}

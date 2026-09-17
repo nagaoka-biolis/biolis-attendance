@@ -96,6 +96,7 @@ export async function POST(req: NextRequest) {
       let employ = (sh && daytime) ? r.employ_daily : 0
       let contract = (sh && r.both_contracts && r.contract_daily > 0) ? r.contract_daily : 0
       // 短時間勤務の按分（先生ごと・シフト基準）。しきい値未満なら 日給/日額 × (働いた時間/8)。
+      let proratedH: number | null = null
       if (r.short_time_mode === 'prorate' && sh) {
         const wm = workedMinFromShift(sh.start_time, sh.end_time)
         if (wm != null) {
@@ -105,6 +106,7 @@ export async function POST(req: NextRequest) {
             const ratio = Math.min(workedH / 8, 1)
             employ = Math.round(employ * ratio)
             contract = Math.round(contract * ratio)
+            proratedH = Math.round(workedH * 100) / 100
           }
         }
       }
@@ -120,6 +122,9 @@ export async function POST(req: NextRequest) {
           time: at?.clockIn || (sh ? (sh.start_time ?? '') : ''),   // 出勤（打刻優先、なければシフト開始）
           end: at?.clockOut || (sh ? (sh.end_time ?? '') : ''),      // 退勤（打刻優先、なければシフト終了）
           breakMin: at?.breakMin ?? 0,                               // 休憩（分）
+          shiftStart: sh?.start_time ?? '',                          // シフト開始（按分の根拠）
+          shiftEnd: sh?.end_time ?? '',                              // シフト終了
+          proratedH,                                                 // 按分に使った実働時間(h)。按分してない日は null
           adj: aList.some(a => a.date === d),
         })
       }
