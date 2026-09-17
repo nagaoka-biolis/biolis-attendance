@@ -127,6 +127,65 @@ export default function AdminPage() {
     setTimeout(() => w.print(), 300)
   }
 
+  // 業務委託の請求書（委託あり）／給与明細（雇用のみ）を先生ごとに整形。インセンティブは別途表示。
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const invoiceHtml = (r: any): string => {
+    const yen = (n: number) => '¥' + Math.round(n).toLocaleString()
+    const ph = '（本番で記入）'
+    const hasContract = r.contractTotal > 0
+    const taxExcl = r.contractTotal - r.contractTax
+    const contractDays = r.days.filter((d: any) => d.contract > 0)
+      .map((d: any) => `<tr><td class="l">${fmtD(d.date)}</td><td class="l">業務委託 日額${d.proratedH != null ? `（短時間按分 ${d.proratedH}h）` : ''}</td><td class="r">${yen(d.contract)}</td></tr>`).join('')
+    const allowRow = r.allowance > 0 ? `<tr><td class="l">—</td><td class="l">管理医師手当</td><td class="r">${yen(r.allowance)}</td></tr>` : ''
+    const employDays = r.days.filter((d: any) => d.employ > 0)
+      .map((d: any) => `<tr><td class="l">${fmtD(d.date)}</td><td class="l">雇用 日額${d.proratedH != null ? `（短時間按分 ${d.proratedH}h）` : ''}</td><td class="r">${yen(d.employ)}</td></tr>`).join('')
+    const commuteRow = r.commuteFixed > 0 ? `<tr><td class="l">—</td><td class="l">通勤手当（定期・非課税）</td><td class="r">${yen(r.commuteFixed)}</td></tr>` : ''
+    const transRow = r.transport > 0 ? `<tr><td class="l">—</td><td class="l">交通費（実費）</td><td class="r">${yen(r.transport)}</td></tr>` : ''
+    const contractBlock = hasContract ? `<div class="sec-ttl">業務委託分（課税）</div>
+      <table><tr><th class="l">日付</th><th class="l">摘要</th><th class="r">金額(税込)</th></tr>${contractDays}${allowRow}
+      <tr class="sub"><td class="l" colspan="2">委託小計（税込）</td><td class="r">${yen(r.contractTotal)}</td></tr>
+      <tr><td class="l" colspan="2">うち消費税(10%)</td><td class="r">${yen(r.contractTax)}</td></tr>
+      <tr><td class="l" colspan="2">税抜</td><td class="r">${yen(taxExcl)}</td></tr></table>` : ''
+    const employBlock = (employDays || commuteRow || transRow) ? `<div class="sec-ttl">${hasContract ? '参考：' : ''}雇用分（給与・消費税対象外／医療法人さくら会）</div>
+      <table><tr><th class="l">日付</th><th class="l">摘要</th><th class="r">金額</th></tr>${employDays}${commuteRow}${transRow}
+      <tr class="sub"><td class="l" colspan="2">雇用小計（対象外）</td><td class="r">${yen(r.employTotal + r.commuteFixed + r.transport)}</td></tr></table>` : ''
+    const issuer = hasContract ? (r.contractorName || r.name) : '医療法人さくら会 BiOLiS CLINIC'
+    const to = hasContract ? '株式会社AICC 御中' : `${r.name} 様`
+    const title = hasContract ? '業務委託 御請求書' : '報酬明細（給与）'
+    const claim = hasContract ? `<div class="amt">ご請求金額（税込）：${yen(r.contractTotal)}</div>` : `<div class="amt">支給合計：${yen(r.total)}</div>`
+    return `<section class="inv">
+      <div class="mikomi">※見込み（試算）です。源泉徴収・課税区分・差引支給額の最終判断は顧問税理士の確認が前提です。</div>
+      <div class="head"><div class="ttl">${title}</div><div class="date">対象月：${payroll.month} ／ 稼働${r.daysCount}日</div></div>
+      <div class="meta"><div class="to">${to}</div><div class="from">発行元：${issuer}<br>住所：${ph}<br>登録番号：${ph}</div></div>
+      ${claim}${contractBlock}${employBlock}
+      ${r.note ? `<div class="betsu">別途（データ待ち）：${r.note}</div>` : ''}
+      <div class="pay">お振込先：${ph}</div></section>`
+  }
+  const printInvoice = () => {
+    if (!payroll?.results?.length) return
+    const targets = payrollTarget === 'summary' ? payroll.results : payroll.results.filter((x: any) => x.user_id === payrollTarget)
+    if (!targets.length) return
+    const body = targets.map(invoiceHtml).join('<div class="pb"></div>')
+    const css = `body{font-family:"Hiragino Sans",sans-serif;color:#1A1A2E;margin:0}
+      .inv{padding:28px 32px;max-width:720px;margin:0 auto}.pb{page-break-after:always}
+      .mikomi{font-size:10px;color:#9A7B1F;background:#FFF8E7;padding:6px 8px;border-radius:6px;margin-bottom:14px}
+      .head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #1A1A2E;padding-bottom:8px}
+      .ttl{font-size:20px;font-weight:700}.date{font-size:12px;color:#555}
+      .meta{display:flex;justify-content:space-between;margin:14px 0}
+      .to{font-size:15px;font-weight:600;border-bottom:1px solid #1A1A2E;align-self:flex-start;padding-bottom:2px}
+      .from{font-size:11px;color:#555;text-align:right;line-height:1.6}
+      .amt{font-size:16px;font-weight:700;background:#F5F1E6;padding:8px 12px;border-radius:6px;margin:10px 0}
+      .sec-ttl{font-size:12px;font-weight:600;margin:16px 0 6px}
+      table{border-collapse:collapse;width:100%;font-size:12px}
+      th,td{padding:5px 8px;border-bottom:1px solid #eee}th{color:#888;font-weight:400;border-bottom:1px solid #ddd}
+      .l{text-align:left}.r{text-align:right}tr.sub td{font-weight:700;border-top:1px solid #ccc}
+      .betsu{color:#c00;font-size:11px;margin:10px 0}.pay{font-size:11px;color:#555;margin-top:16px;border-top:1px dashed #ccc;padding-top:8px}`
+    const w = window.open('', '_blank'); if (!w) return
+    w.document.write(`<html><head><meta charset="utf-8"><title>請求書_${selectedMonth}</title><style>${css}</style></head><body>${body}</body></html>`)
+    w.document.close(); w.focus(); setTimeout(() => w.print(), 300)
+  }
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+
   const fetchPayroll = useCallback(async (month: string) => {
     setPayrollLoading(true)
     const { data: { session } } = await supabase.auth.getSession()
@@ -823,6 +882,7 @@ export default function AdminPage() {
               </select>
               <button onClick={exportPayrollCSV} className="btn-outline text-sm px-4 py-2 rounded-lg">CSVダウンロード</button>
               <button onClick={printPayrollPDF} className="btn-gold text-sm px-4 py-2 rounded-lg">PDF（印刷）</button>
+              <button onClick={printInvoice} className="btn-outline text-sm px-4 py-2 rounded-lg">請求書（PDF）</button>
             </div>
           )}
           {payrollLoading ? (
