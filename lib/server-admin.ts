@@ -58,6 +58,24 @@ export async function requireAiUser(req: NextRequest): Promise<
   return { ok: true, admin, userId: user.id, scope: (row as { scope?: string }).scope ?? 'exec' }
 }
 
+// 給与（基本給）を見られる人か検証する。
+// ai_users と同じ **名簿のみ** 方式。role='admin' でも自動では通さない。
+// 「勤怠を管理できる」と「給与を見られる」を分離する。経緯は migrations/007_staff_wages.sql。
+export async function requirePayrollViewer(req: NextRequest): Promise<
+  { ok: true; admin: SupabaseClient; userId: string } | { ok: false; error: string; status: number }
+> {
+  const admin = adminClient()
+  const t = req.headers.get('authorization')?.replace('Bearer ', '')
+  if (!t) return { ok: false, error: '認証が必要です', status: 401 }
+  const { data: { user }, error } = await admin.auth.getUser(t)
+  if (error || !user) return { ok: false, error: '認証に失敗しました', status: 401 }
+
+  const { data: row } = await admin.from('payroll_viewers').select('id').eq('id', user.id).maybeSingle()
+  if (!row) return { ok: false, error: '給与の閲覧権限がありません', status: 403 }
+
+  return { ok: true, admin, userId: user.id }
+}
+
 // 経理権限（領収書の手動保管）を持つか検証する。
 // 「メインroleがadmin」または「receipt_managers に行がある」なら許可。
 export async function requireReceiptManager(req: NextRequest): Promise<

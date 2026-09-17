@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase, Profile, Attendance, Message, Shift } from '@/lib/supabase'
 import ShiftCalendar, { shiftTimeLabel } from '@/components/ShiftCalendar'
 import AiChat from '@/components/AiChat'
+import StaffPayroll from '@/components/StaffPayroll'
 
 type MessageWithProfile = Message & { profiles: Profile | null }
 
@@ -47,7 +48,7 @@ export default function AdminPage() {
   const [newStaff, setNewStaff] = useState({ name: '', email: '', password: '', role: 'staff' })
   const [staffSaving, setStaffSaving] = useState(false)
   const [staffMsg, setStaffMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
-  const [tab, setTab] = useState<'attendance' | 'shift' | 'staff' | 'messages' | 'payroll' | 'expense' | 'ai'>('attendance')
+  const [tab, setTab] = useState<'attendance' | 'shift' | 'staff' | 'messages' | 'payroll' | 'basepay' | 'expense' | 'ai'>('attendance')
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [payroll, setPayroll] = useState<any>(null)
   const [payrollLoading, setPayrollLoading] = useState(false)
@@ -717,6 +718,7 @@ export default function AdminPage() {
             ['attendance', '勤怠'],
             ['shift', 'シフト'],
             ['payroll', '報酬'],
+            ['basepay', '基本給'],
             ['expense', '経費'],
             ['staff', 'スタッフ管理'],
             ['messages', '連絡'],
@@ -793,6 +795,9 @@ export default function AdminPage() {
           </div>
         </div>
         )}
+
+        {/* 基本給（時給スタッフ・payroll_viewers 名簿のみ。権限が無ければコンポーネント側で弾く） */}
+        {tab === 'basepay' && <StaffPayroll />}
 
         {/* 報酬（管理者のみ・サーバー計算） */}
         {tab === 'payroll' && (
