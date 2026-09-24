@@ -115,15 +115,25 @@ export default function DashboardPage() {
   }, [])
 
   const fetchTodayRecords = useCallback(async (userId: string) => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
+    // 日跨ぎ勤務に対応するため直近22時間ぶんを取得し、
+    // 「まだ退勤していない勤務（オープン中のセッション）」があれば前日ぶんでも丸ごと表示する。
+    const since = new Date(Date.now() - 22 * 60 * 60 * 1000)
     const { data } = await supabase
       .from('attendance')
       .select('*')
       .eq('user_id', userId)
-      .gte('timestamp', today.toISOString())
+      .gte('timestamp', since.toISOString())
       .order('timestamp', { ascending: true })
-    if (data) setTodayRecords(data)
+    const all = (data ?? []) as Attendance[]
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0)
+    let lastOutIdx = -1
+    all.forEach((r, i) => { if (r.type === 'clock_out') lastOutIdx = i })
+    const afterLastOut = all.slice(lastOutIdx + 1)
+    const openStart = afterLastOut.findIndex(r => r.type === 'clock_in')
+    // オープン中の勤務があれば、その出勤から先を（日跨ぎでも1勤務として）表示。
+    // 無ければ今日の打刻だけを表示する。
+    const relevant = openStart >= 0 ? afterLastOut.slice(openStart) : all.filter(r => new Date(r.timestamp) >= startOfToday)
+    setTodayRecords(relevant)
   }, [])
 
   const fetchMyMessages = useCallback(async (userId: string) => {
