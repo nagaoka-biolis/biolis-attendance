@@ -39,19 +39,30 @@ export async function POST(req: NextRequest) {
   }
   if (wagesByUser.size === 0) return NextResponse.json({ ok: true, month: `${year}年${mon}月`, results: [], grand: emptyGrand() })
 
-  // 打刻を (ユーザー×日) に集計
+  // 打刻を (ユーザー×日) に集計。日跨ぎ勤務に備え前後6時間広げて取得し、
+  // 退勤・休憩は「その勤務を開始した出勤の日」に紐づける（＝出勤日で集計）。
+  const winStart = new Date(new Date(`${start}T00:00:00+09:00`).getTime() - 6 * 60 * 60 * 1000).toISOString()
+  const winEnd = new Date(new Date(`${end}T23:59:59+09:00`).getTime() + 6 * 60 * 60 * 1000).toISOString()
   const { data: att } = await admin.from('attendance').select('user_id,type,timestamp')
-    .gte('timestamp', `${start}T00:00:00+09:00`).lte('timestamp', `${end}T23:59:59+09:00`)
+    .gte('timestamp', winStart).lte('timestamp', winEnd)
     .order('timestamp', { ascending: true })
   const jstShift = (ts: string) => new Date(new Date(ts).getTime() + 9 * 60 * 60 * 1000)
   const jstDate = (ts: string) => { const d = jstShift(ts); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}` }
   const jstHM = (ts: string) => { const d = jstShift(ts); return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}` }
+  // 勤務の「出勤日」を返す（clock_in で開始した日を、その勤務の退勤・休憩にも適用）
+  const sessionDate = new Map<string, string>()
+  const workDateOf = (userId: string, type: string, ts: string): string => {
+    if (type === 'clock_in') { const d = jstDate(ts); sessionDate.set(userId, d); return d }
+    const d = sessionDate.get(userId) ?? jstDate(ts)
+    if (type === 'clock_out') sessionDate.delete(userId)
+    return d
+  }
 
   type DayAtt = { clockInISO: string | null; clockOutISO: string | null; clockInHM: string; clockOutHM: string; breakMin: number; hasBreak: boolean; breaks: { start: string; end: string }[] }
   const attMap = new Map<string, DayAtt>()
   const brkTmp = new Map<string, string | null>()
   for (const a of (att ?? []) as Att[]) {
-    const key = `${a.user_id}|${jstDate(a.timestamp)}`
+    const key = `${a.user_id}|${workDateOf(a.user_id, a.type, a.timestamp)}`
     let e = attMap.get(key)
     if (!e) { e = { clockInISO: null, clockOutISO: null, clockInHM: '', clockOutHM: '', breakMin: 0, hasBreak: false, breaks: [] }; attMap.set(key, e) }
     if (a.type === 'clock_in' && !e.clockInISO) { e.clockInISO = a.timestamp; e.clockInHM = jstHM(a.timestamp) }
@@ -67,7 +78,7 @@ export async function POST(req: NextRequest) {
 
     // その月にこのユーザーが打刻した日を集める
     const dayKeys = Array.from(attMap.keys()).filter(k => k.startsWith(`${userId}|`))
-    const dates = dayKeys.map(k => k.split('|')[1]).sort()
+    const dates = dayKeys.map(k => k.split('|')[1]).filter(d => d >= start && d <= end).sort()
 
     if (payType === 'monthly') {
       // 月給固定。実残業超過はfreee側／第2弾。ここは額面のみ。

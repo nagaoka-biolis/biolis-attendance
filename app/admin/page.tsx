@@ -622,8 +622,9 @@ export default function AdminPage() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     const [year, month] = selectedMonth.split('-').map(Number)
-    const start = new Date(year, month - 1, 1).toISOString()
-    const end = new Date(year, month, 0, 23, 59, 59).toISOString()
+    // 日跨ぎ勤務に備え前後6時間広げて取得し、退勤・休憩は出勤日に紐づけて集計する
+    const start = new Date(new Date(year, month - 1, 1).getTime() - 6 * 60 * 60 * 1000).toISOString()
+    const end = new Date(new Date(year, month, 0, 23, 59, 59).getTime() + 6 * 60 * 60 * 1000).toISOString()
 
     const { data } = await supabase
       .from('attendance')
@@ -634,12 +635,22 @@ export default function AdminPage() {
 
     if (!data) { setLoading(false); return }
 
+    // 勤務の「出勤日」を返す（clock_in で開始した日を、その勤務の退勤・休憩にも適用）
+    const dateStr = (ts: string) => new Date(ts).toLocaleDateString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric' })
+    const sessionDate = new Map<string, string>()
+    const workDateOf = (userId: string, type: string, ts: string): string => {
+      if (type === 'clock_in') { const d = dateStr(ts); sessionDate.set(userId, d); return d }
+      const d = sessionDate.get(userId) ?? dateStr(ts)
+      if (type === 'clock_out') sessionDate.delete(userId)
+      return d
+    }
+
     // 日別・スタッフ別に集計
     const map = new Map<string, DailySummary>()
     const breakTmp = new Map<string, string | null>()  // key -> 休憩開始の仮時刻
     const breakSum = new Map<string, number>()           // key -> 休憩合計（分）
     for (const r of data as AttendanceWithProfile[]) {
-      const date = new Date(r.timestamp).toLocaleDateString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric' })
+      const date = workDateOf(r.user_id, r.type, r.timestamp)
       const key = `${r.user_id}_${date}`
       if (!map.has(key)) {
         map.set(key, { key, date, name: r.profiles?.name ?? '—', userId: r.user_id, clockIn: null, clockOut: null, minutes: 0, breakMinutes: 0, records: [] })
@@ -670,7 +681,12 @@ export default function AdminPage() {
     // 最初の打刻時刻(実時刻)で昇順ソート。日付は正しい時系列順になり、
     // 同じ日の中は「その日に最初に打刻した順」を維持する。
     // ※以前は日付を文字列比較していたため 7/10〜7/19 が 7/2 より前に来るズレがあった。
-    setSummaries(Array.from(map.values()).sort(
+    // 出勤日が対象月に入る勤務だけ残す（前後6時間広げて取得した分の月外を除外）
+    const inMonth = Array.from(map.values()).filter(s => {
+      const [yy, mm] = s.date.split('/').map(Number)
+      return yy === year && mm === month
+    })
+    setSummaries(inMonth.sort(
       (a, b) => new Date(a.records[0].timestamp).getTime() - new Date(b.records[0].timestamp).getTime()
     ))
     setLoading(false)

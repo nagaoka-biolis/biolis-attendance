@@ -148,8 +148,9 @@ export default function DashboardPage() {
 
   const fetchHistory = useCallback(async (userId: string, month: string) => {
     const [year, mon] = month.split('-').map(Number)
-    const start = new Date(year, mon - 1, 1).toISOString()
-    const end = new Date(year, mon, 0, 23, 59, 59).toISOString()
+    // 日跨ぎ勤務に備え前後6時間広げて取得し、退勤・休憩は出勤日に紐づける
+    const start = new Date(new Date(year, mon - 1, 1).getTime() - 6 * 60 * 60 * 1000).toISOString()
+    const end = new Date(new Date(year, mon, 0, 23, 59, 59).getTime() + 6 * 60 * 60 * 1000).toISOString()
     const { data } = await supabase
       .from('attendance')
       .select('*')
@@ -159,10 +160,18 @@ export default function DashboardPage() {
       .order('timestamp', { ascending: true })
     if (!data) { setHistory([]); return }
 
+    const dateStr = (ts: string) => new Date(ts).toLocaleDateString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric' })
+    const sessionDate = new Map<string, string>()
+    const workDateOf = (type: string, ts: string): string => {
+      if (type === 'clock_in') { const d = dateStr(ts); sessionDate.set(userId, d); return d }
+      const d = sessionDate.get(userId) ?? dateStr(ts)
+      if (type === 'clock_out') sessionDate.delete(userId)
+      return d
+    }
     const map = new Map<string, { date: string; clockIn: string | null; clockOut: string | null; breakMin: number; workMin: number }>()
     const bTmp = new Map<string, string | null>()
     for (const r of data as Attendance[]) {
-      const date = new Date(r.timestamp).toLocaleDateString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric' })
+      const date = workDateOf(r.type, r.timestamp)
       if (!map.has(date)) map.set(date, { date, clockIn: null, clockOut: null, breakMin: 0, workMin: 0 })
       const e = map.get(date)!
       if (r.type === 'clock_in' && !e.clockIn) e.clockIn = r.timestamp
@@ -179,7 +188,11 @@ export default function DashboardPage() {
         e.workMin = Math.max(0, gross - e.breakMin)
       }
     }
-    setHistory(Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date)))
+    const inMonth = Array.from(map.values()).filter(e => {
+      const [yy, mm] = e.date.split('/').map(Number)
+      return yy === year && mm === mon
+    })
+    setHistory(inMonth.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()))
   }, [])
 
   useEffect(() => {

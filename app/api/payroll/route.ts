@@ -45,16 +45,26 @@ export async function POST(req: NextRequest) {
   }
 
   // 打刻(勤怠)から 出勤/退勤/休憩 を (ユーザー×日)ごとに集計（明細表示用。金額計算はシフトベースのまま）
+  // 日跨ぎ勤務に備え前後6時間広げて取得し、退勤・休憩は出勤日に紐づける
+  const winStart = new Date(new Date(`${start}T00:00:00+09:00`).getTime() - 6 * 60 * 60 * 1000).toISOString()
+  const winEnd = new Date(new Date(`${end}T23:59:59+09:00`).getTime() + 6 * 60 * 60 * 1000).toISOString()
   const { data: att } = await admin.from('attendance').select('user_id,type,timestamp')
-    .gte('timestamp', `${start}T00:00:00+09:00`).lte('timestamp', `${end}T23:59:59+09:00`)
+    .gte('timestamp', winStart).lte('timestamp', winEnd)
     .order('timestamp', { ascending: true })
   const jstShift = (ts: string) => new Date(new Date(ts).getTime() + 9 * 60 * 60 * 1000)
   const jstDate = (ts: string) => { const d = jstShift(ts); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}` }
   const jstHM = (ts: string) => { const d = jstShift(ts); return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}` }
+  const sessionDate = new Map<string, string>()
+  const workDateOf = (userId: string, type: string, ts: string): string => {
+    if (type === 'clock_in') { const d = jstDate(ts); sessionDate.set(userId, d); return d }
+    const d = sessionDate.get(userId) ?? jstDate(ts)
+    if (type === 'clock_out') sessionDate.delete(userId)
+    return d
+  }
   const attMap = new Map<string, { clockIn: string; clockOut: string; breakMin: number }>()
   const brkTmp = new Map<string, string | null>()
   for (const a of (att ?? []) as Att[]) {
-    const key = `${a.user_id}|${jstDate(a.timestamp)}`
+    const key = `${a.user_id}|${workDateOf(a.user_id, a.type, a.timestamp)}`
     let e = attMap.get(key)
     if (!e) { e = { clockIn: '', clockOut: '', breakMin: 0 }; attMap.set(key, e) }
     if (a.type === 'clock_in' && !e.clockIn) e.clockIn = jstHM(a.timestamp)
