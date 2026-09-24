@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase, Profile, Attendance, Message, Shift } from '@/lib/supabase'
 import ShiftCalendar, { shiftTimeLabel } from '@/components/ShiftCalendar'
@@ -350,19 +350,46 @@ export default function DashboardPage() {
   const slotOfDay = (v?: { kind: string; start: string; end: string }): string => {
     if (!v || v.kind !== 'work') return ''
     const m = REQ_SLOTS.find(s => s.start === v.start && s.end === v.end)
-    return m ? m.key : 'day' // 旧データの独自時刻は日勤として表示
+    return m ? m.key : 'custom' // プリセットに無い時刻＝カスタム
   }
-  // タップで 未定→日勤→夜勤→通し→未定 と切り替える
+  // タップで 未定→日勤→夜勤→通し→未定 と切り替える（カスタムはタップで解除）
   const cycleReqDay = (day: number) => {
     if (reqLocked) return
     const order = ['', 'day', 'night', 'through']
-    const next = order[(order.indexOf(slotOfDay(reqMap[day])) + 1) % order.length]
+    const idx = order.indexOf(slotOfDay(reqMap[day]))
+    const next = idx < 0 ? '' : order[(idx + 1) % order.length]
     setReqMap(prev => {
       const n = { ...prev }
       if (!next) { delete n[day] }
       else { const s = REQ_SLOTS.find(x => x.key === next)!; n[day] = { kind: 'work', start: s.start, end: s.end } }
       return n
     })
+  }
+  // 長押し＝その日の時刻を細かく設定
+  const [editDay, setEditDay] = useState<number | null>(null)
+  const [editStart, setEditStart] = useState('10:00')
+  const [editEnd, setEditEnd] = useState('19:00')
+  const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lpFired = useRef(false)
+  const openReqEditor = (day: number) => {
+    const v = reqMap[day]
+    setEditStart(v?.start || '10:00'); setEditEnd(v?.end || '19:00'); setEditDay(day)
+  }
+  const lpDown = (day: number) => {
+    if (reqLocked) return
+    lpFired.current = false
+    lpTimer.current = setTimeout(() => { lpFired.current = true; openReqEditor(day) }, 500)
+  }
+  const lpUp = (day: number) => {
+    if (lpTimer.current) { clearTimeout(lpTimer.current); lpTimer.current = null }
+    if (!lpFired.current) cycleReqDay(day)
+    lpFired.current = false
+  }
+  const lpCancel = () => { if (lpTimer.current) { clearTimeout(lpTimer.current); lpTimer.current = null } }
+  const saveReqEditor = () => {
+    if (editDay == null) return
+    setReqMap(prev => ({ ...prev, [editDay]: { kind: 'work', start: editStart, end: editEnd } }))
+    setEditDay(null)
   }
   const handleSubmitRequests = async () => {
     if (!profile || reqLocked || !reqTargetMonth) return
@@ -673,7 +700,7 @@ export default function DashboardPage() {
             <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>現在、シフト希望の受付はありません</p>
           ) : (<>
           <div className="text-xs mb-3" style={{ color: 'var(--gray)' }}>
-            <b style={{ color: 'var(--navy)' }}>{reqTargetMonth.replace('-', '年')}月</b>の出勤希望日をタップで選んでください（タップするたび <b>日勤→夜勤→通し→なし</b>）。時刻は自動で入ります。
+            <b style={{ color: 'var(--navy)' }}>{reqTargetMonth.replace('-', '年')}月</b>の出勤希望日をタップで選んでください（タップするたび <b>日勤→夜勤→通し→なし</b>）。時刻は自動で入ります。<b>長押し</b>で時刻を細かく指定できます。
             {reqDeadline ? `／締切：${new Date(reqDeadline).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })}まで` : '（締切未設定）'}
             {reqLocked && ' ※締切を過ぎたため変更できません'}
           </div>
@@ -698,18 +725,46 @@ export default function DashboardPage() {
               return Array.from({ length: firstWd + days }, (_, i) => {
                 if (i < firstWd) return <div key={`b${i}`} />
                 const day = i - firstWd + 1
-                const conf = REQ_SLOTS.find(s => s.key === slotOfDay(reqMap[day]))
+                const v = reqMap[day]
+                const slot = slotOfDay(v)
+                const conf = REQ_SLOTS.find(s => s.key === slot)
+                const isCustom = slot === 'custom'
+                const active = !!conf || isCustom
+                const fg = conf ? conf.fg : isCustom ? '#1F7A44' : 'var(--navy)'
+                const bg = conf ? conf.bg : isCustom ? '#E7F6EC' : '#fff'
                 return (
-                  <button key={day} disabled={reqLocked} onClick={() => cycleReqDay(day)}
-                    className="aspect-square rounded-lg flex flex-col items-center justify-center border transition"
-                    style={{ borderColor: conf ? conf.fg : 'var(--gray-light)', background: conf ? conf.bg : '#fff', color: conf ? conf.fg : 'var(--navy)', opacity: reqLocked ? 0.6 : 1 }}>
+                  <button key={day} disabled={reqLocked}
+                    onPointerDown={() => lpDown(day)} onPointerUp={() => lpUp(day)}
+                    onPointerLeave={lpCancel} onContextMenu={e => e.preventDefault()}
+                    className="aspect-square rounded-lg flex flex-col items-center justify-center border transition select-none"
+                    style={{ borderColor: active ? fg : 'var(--gray-light)', background: bg, color: fg, opacity: reqLocked ? 0.6 : 1 }}>
                     <span className="text-sm font-medium leading-none">{day}</span>
                     {conf && <span style={{ fontSize: '9px', marginTop: '2px' }}>{conf.label}</span>}
+                    {isCustom && v && <span style={{ fontSize: '8px', marginTop: '1px', lineHeight: 1.1 }}>{v.start}-{v.end}</span>}
                   </button>
                 )
               })
             })()}
           </div>
+          {editDay != null && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.4)' }} onClick={() => setEditDay(null)}>
+              <div className="rounded-2xl p-5 w-full max-w-xs" style={{ background: '#fff' }} onClick={e => e.stopPropagation()}>
+                <div className="text-sm font-bold mb-3" style={{ color: 'var(--navy)' }}>{reqTargetMonth.split('-')[1]}/{editDay} の時刻を指定</div>
+                <div className="flex items-end gap-2 mb-4">
+                  <label className="flex-1 text-xs" style={{ color: 'var(--gray)' }}>出勤
+                    <input type="time" step={900} value={editStart} onChange={e => setEditStart(e.target.value)} className="w-full mt-1 px-2 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--gray-light)' }} /></label>
+                  <span className="pb-2" style={{ color: 'var(--gray)' }}>〜</span>
+                  <label className="flex-1 text-xs" style={{ color: 'var(--gray)' }}>退勤
+                    <input type="time" step={900} value={editEnd} onChange={e => setEditEnd(e.target.value)} className="w-full mt-1 px-2 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--gray-light)' }} /></label>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={saveReqEditor} className="btn-gold flex-1 py-2 rounded-lg text-sm">この時刻で設定</button>
+                  <button onClick={() => { if (editDay == null) return; setReqMap(prev => { const n = { ...prev }; delete n[editDay]; return n }); setEditDay(null) }}
+                    className="flex-1 py-2 rounded-lg text-sm border" style={{ borderColor: 'var(--gray-light)', color: 'var(--gray)' }}>クリア</button>
+                </div>
+              </div>
+            </div>
+          )}
           {reqMsg && (
             <div className={`mt-3 text-sm rounded-lg px-3 py-2 ${reqMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{reqMsg.text}</div>
           )}
