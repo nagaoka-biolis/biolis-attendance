@@ -341,44 +341,38 @@ export default function DashboardPage() {
   }
 
   const reqLocked = !!(reqDeadline && new Date().toISOString().slice(0, 10) > reqDeadline)
-  const setReqDay = (day: number, patch: Partial<{ kind: string; start: string; end: string }>) => {
-    const base = { kind: 'undecided', start: '', end: '' }
-    setReqMap(prev => ({ ...prev, [day]: { ...base, ...prev[day], ...patch } }))
+  // シフト希望のスロット（時刻で 日勤/夜勤/通し を表す）
+  const REQ_SLOTS = [
+    { key: 'day', label: '日勤', start: '10:00', end: '19:00', bg: '#E8F0FE', fg: '#1E5FBF' },
+    { key: 'night', label: '夜勤', start: '19:00', end: '23:00', bg: '#F1EAFB', fg: '#6B3FA0' },
+    { key: 'through', label: '通し', start: '10:00', end: '23:00', bg: '#FFF1D9', fg: '#B8791F' },
+  ]
+  const slotOfDay = (v?: { kind: string; start: string; end: string }): string => {
+    if (!v || v.kind !== 'work') return ''
+    const m = REQ_SLOTS.find(s => s.start === v.start && s.end === v.end)
+    return m ? m.key : 'day' // 旧データの独自時刻は日勤として表示
   }
-  // 打ち込んだ時刻を HH:MM に整形（例: "1000"→"10:00", "930"→"09:30", "10:0"→"10:00"）
-  const normTimeInput = (s: string): string => {
-    if (!s) return ''
-    if (s.includes(':')) {
-      const [h, m] = s.split(':')
-      const hh = (h || '').replace(/\D/g, '').padStart(2, '0').slice(0, 2)
-      const mm = (m || '').replace(/\D/g, '').padEnd(2, '0').slice(0, 2)
-      return `${hh}:${mm}`
-    }
-    const d = s.replace(/\D/g, '')
-    if (!d) return ''
-    if (d.length <= 2) return `${d.padStart(2, '0')}:00`
-    if (d.length === 3) return `0${d[0]}:${d.slice(1)}`
-    return `${d.slice(0, 2)}:${d.slice(2, 4)}`
+  // タップで 未定→日勤→夜勤→通し→未定 と切り替える
+  const cycleReqDay = (day: number) => {
+    if (reqLocked) return
+    const order = ['', 'day', 'night', 'through']
+    const next = order[(order.indexOf(slotOfDay(reqMap[day])) + 1) % order.length]
+    setReqMap(prev => {
+      const n = { ...prev }
+      if (!next) { delete n[day] }
+      else { const s = REQ_SLOTS.find(x => x.key === next)!; n[day] = { kind: 'work', start: s.start, end: s.end } }
+      return n
+    })
   }
   const handleSubmitRequests = async () => {
     if (!profile || reqLocked || !reqTargetMonth) return
-    // 勤務希望なのに出勤・退勤が空のまま提出されるのを防ぐ（空欄提出を弾く）
-    const mmLabel = reqTargetMonth.split('-')[1]
-    const missing = Object.entries(reqMap)
-      .filter(([, v]) => v.kind === 'work' && (!v.start || !v.end))
-      .map(([d]) => Number(d))
-      .sort((a, b) => a - b)
-    if (missing.length) {
-      setReqMsg({ text: `勤務希望の日は出勤・退勤の時刻を両方入力してください（未入力：${missing.map(d => `${mmLabel}/${d}`).join('・')}）`, type: 'error' })
-      return
-    }
     setReqSaving(true); setReqMsg(null)
     const [year, mon] = reqTargetMonth.split('-').map(Number)
     const start = `${year}-${String(mon).padStart(2, '0')}-01`
     const end = `${year}-${String(mon).padStart(2, '0')}-${new Date(year, mon, 0).getDate()}`
     await supabase.from('shift_requests').delete().eq('user_id', profile.id).gte('date', start).lte('date', end)
     const rows = Object.entries(reqMap)
-      .filter(([, v]) => v.kind && v.kind !== 'undecided')
+      .filter(([, v]) => v.kind === 'work')
       .map(([d, v]) => ({
         user_id: profile.id, date: `${year}-${String(mon).padStart(2, '0')}-${String(Number(d)).padStart(2, '0')}`,
         kind: v.kind, start_time: v.kind === 'work' ? (v.start || null) : null, end_time: v.kind === 'work' ? (v.end || null) : null,
@@ -675,52 +669,46 @@ export default function DashboardPage() {
             className="inline-flex items-center gap-1 text-xs mb-3" style={{ color: 'var(--gold)' }}>
             📄 入力方法（マニュアル）を見る
           </a>
-          <datalist id="time-options">
-            {Array.from({ length: 27 }, (_, i) => {
-              const mins = 8 * 60 + i * 30 // 08:00〜21:00 を30分刻み
-              const hh = String(Math.floor(mins / 60)).padStart(2, '0')
-              const mm = String(mins % 60).padStart(2, '0')
-              return <option key={i} value={`${hh}:${mm}`} />
-            })}
-          </datalist>
           {!reqTargetMonth ? (
             <p className="text-sm text-center py-6" style={{ color: 'var(--gray)' }}>現在、シフト希望の受付はありません</p>
           ) : (<>
           <div className="text-xs mb-3" style={{ color: 'var(--gray)' }}>
-            <b style={{ color: 'var(--navy)' }}>{reqTargetMonth.replace('-', '年')}月</b>の希望を入力 → 「提出」で反映されます。
-            {reqDeadline ? `締切：${new Date(reqDeadline).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })}まで` : '（締切未設定）'}
+            <b style={{ color: 'var(--navy)' }}>{reqTargetMonth.replace('-', '年')}月</b>の出勤希望日をタップで選んでください（タップするたび <b>日勤→夜勤→通し→なし</b>）。時刻は自動で入ります。
+            {reqDeadline ? `／締切：${new Date(reqDeadline).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })}まで` : '（締切未設定）'}
             {reqLocked && ' ※締切を過ぎたため変更できません'}
           </div>
-          <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
-            {Array.from({ length: new Date(Number(reqTargetMonth.split('-')[0]), Number(reqTargetMonth.split('-')[1]), 0).getDate() }, (_, i) => i + 1).map(day => {
-              const wd = new Date(Number(reqTargetMonth.split('-')[0]), Number(reqTargetMonth.split('-')[1]) - 1, day).getDay()
-              const v = reqMap[day] ?? { kind: 'undecided', start: '', end: '' }
-              return (
-                <div key={day} className="flex items-center gap-2 text-sm py-0.5">
-                  <span className="w-14 text-xs" style={{ color: wd === 0 ? '#EF4444' : wd === 6 ? '#2563EB' : 'var(--gray)' }}>{reqTargetMonth.split('-')[1]}/{day}({['日', '月', '火', '水', '木', '金', '土'][wd]})</span>
-                  <select disabled={reqLocked} value={v.kind} onChange={e => setReqDay(day, { kind: e.target.value })}
-                    className="px-2 py-1 rounded border text-xs" style={{ borderColor: 'var(--gray-light)', background: reqLocked ? '#f3f3f3' : '#fff', color: 'var(--navy)' }}>
-                    <option value="undecided">未定</option>
-                    <option value="work">勤務希望</option>
-                    <option value="off">休み希望</option>
-                  </select>
-                  {v.kind === 'work' && (
-                    <>
-                      <span className="text-xs" style={{ color: 'var(--gray)' }}>出勤</span>
-                      <input disabled={reqLocked} type="text" inputMode="numeric" list="time-options" placeholder="10:00" maxLength={5}
-                        value={v.start} onChange={e => setReqDay(day, { start: e.target.value })}
-                        onBlur={e => setReqDay(day, { start: normTimeInput(e.target.value) })}
-                        className="px-2 py-1 rounded border text-xs w-16 text-center" style={{ borderColor: 'var(--gray-light)' }} />
-                      <span className="text-xs" style={{ color: 'var(--gray)' }}>退勤</span>
-                      <input disabled={reqLocked} type="text" inputMode="numeric" list="time-options" placeholder="19:00" maxLength={5}
-                        value={v.end} onChange={e => setReqDay(day, { end: e.target.value })}
-                        onBlur={e => setReqDay(day, { end: normTimeInput(e.target.value) })}
-                        className="px-2 py-1 rounded border text-xs w-16 text-center" style={{ borderColor: 'var(--gray-light)' }} />
-                    </>
-                  )}
-                </div>
-              )
-            })}
+          {/* 凡例 */}
+          <div className="flex gap-2 flex-wrap text-xs mb-2">
+            {REQ_SLOTS.map(s => (
+              <span key={s.key} className="px-2 py-0.5 rounded" style={{ background: s.bg, color: s.fg }}>{s.label} {s.start}〜{s.end}</span>
+            ))}
+          </div>
+          {/* 曜日ヘッダ */}
+          <div className="grid grid-cols-7 gap-1 text-center mb-1" style={{ fontSize: '11px' }}>
+            {['日', '月', '火', '水', '木', '金', '土'].map((w, i) => (
+              <div key={w} style={{ color: i === 0 ? '#EF4444' : i === 6 ? '#2563EB' : 'var(--gray)' }}>{w}</div>
+            ))}
+          </div>
+          {/* 日グリッド */}
+          <div className="grid grid-cols-7 gap-1">
+            {(() => {
+              const [yy, mm] = reqTargetMonth.split('-').map(Number)
+              const firstWd = new Date(yy, mm - 1, 1).getDay()
+              const days = new Date(yy, mm, 0).getDate()
+              return Array.from({ length: firstWd + days }, (_, i) => {
+                if (i < firstWd) return <div key={`b${i}`} />
+                const day = i - firstWd + 1
+                const conf = REQ_SLOTS.find(s => s.key === slotOfDay(reqMap[day]))
+                return (
+                  <button key={day} disabled={reqLocked} onClick={() => cycleReqDay(day)}
+                    className="aspect-square rounded-lg flex flex-col items-center justify-center border transition"
+                    style={{ borderColor: conf ? conf.fg : 'var(--gray-light)', background: conf ? conf.bg : '#fff', color: conf ? conf.fg : 'var(--navy)', opacity: reqLocked ? 0.6 : 1 }}>
+                    <span className="text-sm font-medium leading-none">{day}</span>
+                    {conf && <span style={{ fontSize: '9px', marginTop: '2px' }}>{conf.label}</span>}
+                  </button>
+                )
+              })
+            })()}
           </div>
           {reqMsg && (
             <div className={`mt-3 text-sm rounded-lg px-3 py-2 ${reqMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{reqMsg.text}</div>
